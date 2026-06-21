@@ -17,6 +17,7 @@ import sys
 import importlib.util
 
 MODEL = "run:///home/martin/bin/opencode-free-deepseek-v4-flash-completions.py"
+os.environ["AGENTKNIT_RESUME_COMMAND"] = os.path.realpath(__file__)
 
 AGENT_PROBE_DIR = "/home/martin/workspace/prototypes/probe-model-tools"
 sys.path.insert(0, AGENT_PROBE_DIR)
