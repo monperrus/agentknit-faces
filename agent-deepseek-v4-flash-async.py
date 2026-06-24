@@ -52,6 +52,20 @@ from agentknit.tool_library import (
     t_write,
 )
 
+# Maps tool_exec_id → command string, populated by _t_execute_async_tracking.
+_exec_commands: dict[str, str] = {}
+_CMD_MAX = 60
+
+
+def _t_execute_async_tracking(command: str, when: int = 0) -> tuple[str, dict]:
+    import json
+    result_str, result_dict = t_execute_async(command, when=when)
+    exec_id = json.loads(result_str).get("tool_exec_id")
+    if exec_id:
+        _exec_commands[exec_id] = command
+    return result_str, result_dict
+
+
 _TOOLS = [
     Tool(
         "execute_shell_command",
@@ -65,7 +79,7 @@ _TOOLS = [
         f"be notified automatically with its output. In the meantime you can "
         f"read the stdout and stderr files (at the paths returned by this tool) "
         f"to see partial output while the command is still running.",
-        t_execute_async,
+        _t_execute_async_tracking,
         parameters={
             "type": "object",
             "properties": {
@@ -170,8 +184,13 @@ def _completion_message(event: dict) -> str:
         )
     else:
         stderr_text = stderr.rstrip()
+    cmd = _exec_commands.pop(exec_id, None)
+    cmd_repr = ""
+    if cmd:
+        truncated = cmd if len(cmd) <= _CMD_MAX else cmd[:_CMD_MAX] + "…"
+        cmd_repr = f" `{truncated}`"
     parts = [
-        f"Background command {exec_id} finished after {duration:.1f}s "
+        f"Background command{cmd_repr} ({exec_id}) finished after {duration:.1f}s "
         f"(returncode={rc})."
     ]
     if cwd:
