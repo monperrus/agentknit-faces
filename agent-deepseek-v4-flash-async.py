@@ -11,7 +11,6 @@ Usage (direct):
 
 from __future__ import annotations
 
-import atexit
 import os
 import sys
 
@@ -183,21 +182,17 @@ def _completion_message(event: dict) -> str:
     return "\n".join(parts)
 
 
-def _drain_completion_queue() -> list[str]:
-    """Return formatted messages for every completed async command."""
-    msgs: list[str] = []
-    while True:
-        try:
-            msgs.append(_completion_message(async_completion_queue.get_nowait()))
-        except queue.Empty:
-            break
-    return msgs
-
 
 def _repl(schema: dict, session_id: str | None, system_prompt_supplement: str) -> None:
-    """Custom REPL that auto-triggers LLM turns when background commands finish."""
+    """Custom REPL that auto-triggers LLM turns when background commands finish.
+
+    Uses the "input thread" pattern: input() runs in a daemon thread so it
+    never needs to be interrupted externally.  Both user input and async
+    completion events are routed through a shared event_queue; the main thread
+    processes whichever arrives first.
+    """
     import hashlib
-    import readline  # noqa: F401 — enables arrow keys in input()
+    import readline  # noqa: F401 — enables arrow keys / history in input()
     import threading
 
     client = create_client(schema)
@@ -227,22 +222,32 @@ def _repl(schema: dict, session_id: str | None, system_prompt_supplement: str) -
 
     print(f"{BOLD}async-agent {model}{RESET}  (type 'exit' to quit)\n")
 
-    pending: list[str] = []
+    # ("user", line) | ("completion", msg) | ("eof", None)
+    event_queue: queue.Queue = queue.Queue()
 
-    _alert = threading.Event()
-    _stop_monitor = threading.Event()
+    _stop = threading.Event()
 
-    def _monitor() -> None:
-        while not _stop_monitor.is_set():
+    def _input_reader() -> None:
+        while not _stop.is_set():
             try:
-                async_completion_queue.get(timeout=0.25)
-                _alert.set()
+                line = input(f"{RL_BOLD}>{RL_RESET} ")
+                event_queue.put(("user", line))
+            except EOFError:
+                event_queue.put(("eof", None))
+                return
+            except KeyboardInterrupt:
+                print()  # newline after ^C; loop restarts → new prompt
+
+    def _completion_watcher() -> None:
+        while not _stop.is_set():
+            try:
+                event = async_completion_queue.get(timeout=0.25)
+                event_queue.put(("completion", event))
             except queue.Empty:
                 pass
 
-    _monitor_thread = threading.Thread(target=_monitor, daemon=True)
-    _monitor_thread.start()
-    atexit.register(lambda: _stop_monitor.set())
+    threading.Thread(target=_input_reader, daemon=True).start()
+    threading.Thread(target=_completion_watcher, daemon=True).start()
 
     def _run(task: str) -> None:
         try:
@@ -252,45 +257,31 @@ def _repl(schema: dict, session_id: str | None, system_prompt_supplement: str) -
         finally:
             _save_messages_snapshot(session)
 
-    def _check_alerts() -> None:
-        if _alert.is_set():
-            _alert.clear()
-            pending.extend(_drain_completion_queue())
-
     try:
         while True:
-            _check_alerts()
-
-            if pending:
-                task = pending.pop(0)
-                print(f"{DIM}[completion] {task.splitlines()[0]}{RESET}")
-                _run(task)
-                continue
-
             try:
-                user_input = input(f"{RL_BOLD}>{RL_RESET} ")
-            except KeyboardInterrupt:
-                print()
+                kind, data = event_queue.get(timeout=0.5)
+            except queue.Empty:
                 continue
-            except EOFError:
-                print()
+
+            if kind == "eof":
                 break
-
-            _check_alerts()
-            if pending:
-                pending.insert(0, user_input.strip())
-                continue
-
-            cmd = user_input.strip()
-            if not cmd:
-                continue
-            if cmd.lower() in ("exit", "quit", "q"):
-                break
-
-            _run(user_input)
+            elif kind == "user":
+                cmd = data.strip()
+                if not cmd:
+                    continue
+                if cmd.lower() in ("exit", "quit", "q"):
+                    break
+                _run(data)
+            elif kind == "completion":
+                msg = _completion_message(data)
+                # Print on a fresh line so we don't clobber the user's current input.
+                sys.stdout.write(f"\n{DIM}[completion] {msg.splitlines()[0]}{RESET}\n")
+                sys.stdout.flush()
+                _run(msg)
 
     finally:
-        _stop_monitor.set()
+        _stop.set()
         try:
             readline.write_history_file(_hist_file)
         except Exception:
