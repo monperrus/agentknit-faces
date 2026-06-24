@@ -28,7 +28,6 @@ from agentknit import (
     async_completion_queue,
     build_tool_spec,
     register_tools_in_library,
-    run_task,
     t_execute_async,
 )
 from agentknit._core import (
@@ -46,6 +45,7 @@ from agentknit._core import (
     run_turn,
 )
 from agentknit.tool_library import (
+    TOOL_LIBRARY,
     _async_last_lines,
     _async_try_inline,
     t_read,
@@ -299,6 +299,79 @@ def _repl(schema: dict, session_id: str | None, system_prompt_supplement: str) -
         print(f"\n{DIM}Resume: {resume_cmd}{RESET}")
 
 
+def _run_task_async(
+    schema: dict,
+    task: str,
+    *,
+    session_id: str | None,
+    system_prompt_supplement: str,
+    non_interactive: bool,
+) -> None:
+    """One-shot task runner that delivers async completion events back to the model.
+
+    Unlike run_task(), this loops until all background commands (those that
+    didn't finish within ASYNC_FAST_THRESHOLD_S) have completed and their
+    events have been delivered as follow-up turns.
+    """
+    import json
+    import threading
+
+    _pending_count = 0
+    _pending_lock = threading.Lock()
+
+    _LIB_KEY = "_async_agent_counting_execute"
+
+    def _counting_execute(command: str, when: int = 0) -> tuple[str, dict]:
+        nonlocal _pending_count
+        result_str, result_dict = t_execute_async(command, when=when)
+        result = json.loads(result_str)
+        # "completed" is only present when the command finished inline (fast
+        # path); its absence means a background thread will push an event to
+        # async_completion_queue.
+        if not result.get("completed"):
+            with _pending_lock:
+                _pending_count += 1
+        return result_str, result_dict
+
+    # Register under a string name so agentknit's JSON logging can serialize
+    # the dispatch entry (callable values aren't JSON-serializable).
+    TOOL_LIBRARY[_LIB_KEY] = _counting_execute
+
+    patched_schema = {
+        **schema,
+        "tool_dispatch": {
+            **schema["tool_dispatch"],
+            "execute_shell_command": {"python_function": _LIB_KEY, "param_map": {}},
+        },
+    }
+
+    client = create_client(patched_schema)
+    session = init_session(
+        patched_schema,
+        resumed_from=session_id,
+        system_prompt_supplement=system_prompt_supplement,
+        non_interactive=non_interactive,
+    )
+    try:
+        run_turn(client, patched_schema["model"], session, task)
+        while True:
+            with _pending_lock:
+                if _pending_count == 0:
+                    break
+            try:
+                event = async_completion_queue.get(timeout=300)
+            except queue.Empty:
+                break
+            with _pending_lock:
+                _pending_count -= 1
+            msg = _completion_message(event)
+            print(f"{DIM}[completion] {msg.splitlines()[0]}{RESET}")
+            run_turn(client, patched_schema["model"], session, msg)
+    finally:
+        TOOL_LIBRARY.pop(_LIB_KEY, None)
+        _save_messages_snapshot(session)
+
+
 def main(model: str) -> None:
     import argparse
 
@@ -320,7 +393,7 @@ def main(model: str) -> None:
         non_interactive=args.non_interactive,
     )
     if args.task:
-        run_task(schema, " ".join(args.task), **opts)
+        _run_task_async(schema, " ".join(args.task), **opts)
     else:
         _repl(schema, args.session, _SYSTEM_SUPPLEMENT)
 
