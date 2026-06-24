@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import sys
+import atexit
 
 MODEL = "run:///home/martin/bin/opencode-free-deepseek-v4-flash-completions.py"
 os.environ["AGENTKNIT_RESUME_COMMAND"] = os.path.realpath(__file__)
@@ -33,7 +34,6 @@ from agentknit import (
 )
 from agentknit.tool_library import t_read, t_write, t_update, _async_try_inline, _async_last_lines
 import queue
-import select
 
 from agentknit._core import (
     create_client, init_session, run_turn, _save_messages_snapshot,
@@ -198,6 +198,7 @@ def _repl(schema: dict, session_id: str | None, system_prompt_supplement: str) -
     """Custom REPL that auto-triggers LLM turns when background commands finish."""
     import readline  # noqa: F401 — enables arrow keys in input()
     import hashlib
+    import threading
 
     client  = create_client(schema)
     session = init_session(
@@ -224,10 +225,25 @@ def _repl(schema: dict, session_id: str | None, system_prompt_supplement: str) -
 
     print(f"{BOLD}async-agent {model}{RESET}  (type 'exit' to quit)\n")
 
-    _POLL_INTERVAL = 0.25   # seconds between completion-queue checks at the prompt
-
     pending: list[str] = []
 
+    # ── background thread: watch for async completions ──────────────
+    _alert = threading.Event()
+    _stop_monitor = threading.Event()
+
+    def _monitor() -> None:
+        while not _stop_monitor.is_set():
+            try:
+                async_completion_queue.get(timeout=0.25)
+                _alert.set()
+            except queue.Empty:
+                pass
+
+    _monitor_thread = threading.Thread(target=_monitor, daemon=True)
+    _monitor_thread.start()
+    atexit.register(lambda: _stop_monitor.set())
+
+    # ── helpers ─────────────────────────────────────────────────────
     def _run(task: str) -> None:
         try:
             run_turn(client, model, session, task)
@@ -236,11 +252,15 @@ def _repl(schema: dict, session_id: str | None, system_prompt_supplement: str) -
         finally:
             _save_messages_snapshot(session)
 
+    def _check_alerts() -> None:
+        if _alert.is_set():
+            _alert.clear()
+            pending.extend(_drain_completion_queue())
+
+    # ── main loop ───────────────────────────────────────────────────
     try:
         while True:
-            # Drain any completions that arrived during the last turn.
-            for msg in _drain_completion_queue():
-                pending.append(msg)
+            _check_alerts()
 
             if pending:
                 task = pending.pop(0)
@@ -248,25 +268,8 @@ def _repl(schema: dict, session_id: str | None, system_prompt_supplement: str) -
                 _run(task)
                 continue
 
-            # Wait for user input, polling the completion queue periodically.
-            sys.stdout.write(f"{RL_BOLD}>{RL_RESET} ")
-            sys.stdout.flush()
-            user_task: str | None = None
             try:
-                while user_task is None:
-                    ready, _, _ = select.select([sys.stdin], [], [], _POLL_INTERVAL)
-                    if ready:
-                        line = sys.stdin.readline()
-                        if not line:   # EOF
-                            raise EOFError
-                        user_task = line.rstrip("\n")
-                    else:
-                        for msg in _drain_completion_queue():
-                            pending.append(msg)
-                        if pending and not readline.get_line_buffer():
-                            sys.stdout.write("\n")
-                            sys.stdout.flush()
-                            break   # leave user_task = None, loop will handle pending
+                user_input = input(f"{RL_BOLD}>{RL_RESET} ")
             except KeyboardInterrupt:
                 print()
                 continue
@@ -274,18 +277,23 @@ def _repl(schema: dict, session_id: str | None, system_prompt_supplement: str) -
                 print()
                 break
 
-            if user_task is None:
-                continue   # completion arrived while waiting; loop handles it
+            _check_alerts()
+            if pending:
+                # A completion arrived between prompt and user hitting Enter;
+                # re-queue the typed text and serve the completion first.
+                pending.insert(0, user_input.strip())
+                continue
 
-            cmd = user_task.strip()
+            cmd = user_input.strip()
             if not cmd:
                 continue
             if cmd.lower() in ("exit", "quit", "q"):
                 break
 
-            _run(user_task)
+            _run(user_input)
 
     finally:
+        _stop_monitor.set()
         try:
             readline.write_history_file(_hist_file)
         except Exception:
