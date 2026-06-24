@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Async agent — DeepSeek V4 Flash via opencode.ai (Zen backend).
+"""Async agent — DeepSeek V4 Flash via Claude Haiku backend.
 
 Uses a stable per-directory session ID so each run from the same working
 directory resumes the same conversation, letting the API reuse its
 prefix cache.
 
 Usage:
-    agent-deepseek-v4-flash-zen "<task>"           # one-shot
-    agent-deepseek-v4-flash-zen                    # interactive REPL
-    agent-deepseek-v4-flash-zen --session <id>     # explicit session override
+    agent-deepseek-v4-flash-haiku "<task>"           # one-shot
+    agent-deepseek-v4-flash-haiku                    # interactive REPL
+    agent-deepseek-v4-flash-haiku --session <id>     # explicit session override
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from __future__ import annotations
 import importlib.util
 import os
 
-MODEL = "run:///home/martin/bin/opencode-free-deepseek-v4-flash-completions.py"
+MODEL = "run:///home/martin/bin/claude-haiku-completions.py"
 os.environ["AGENTKNIT_RESUME_COMMAND"] = os.path.realpath(__file__)
 
 _spec = importlib.util.spec_from_file_location(
