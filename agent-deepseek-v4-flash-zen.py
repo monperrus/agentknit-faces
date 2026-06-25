@@ -16,6 +16,9 @@ from __future__ import annotations
 import importlib.util
 import os
 
+# This backend MUST emit a single valid /completions JSON document on stdout.
+# Any surfaced reasoning must stay inside that JSON payload, not be printed
+# as extra text before or after it.
 MODEL = "run:///home/martin/bin/opencode-free-deepseek-v4-flash-completions.py"
 os.environ["AGENTKNIT_RESUME_COMMAND"] = os.path.realpath(__file__)
 
