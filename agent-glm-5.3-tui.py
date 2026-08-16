@@ -50,25 +50,6 @@ _SUPPLEMENT = (
 )
 
 
-class PrefilledAgentTUI(AgentTUI):
-    """AgentTUI that pre-fills the prompt with the CLI task.
-
-    The task lands in the input box, not straight into the model — the user
-    reviews it and submits with Enter.
-    """
-
-    def __init__(self, *args: object, prefill: str = "", **kwargs: object) -> None:
-        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
-        self._prefill = prefill
-
-    def on_mount(self) -> None:
-        super().on_mount()
-        if self._prefill:
-            prompt = self.query_one("#prompt")
-            prompt.text = self._prefill
-            prompt.cursor_location = (0, len(self._prefill))
-
-
 def main() -> int:
     _non_interactive = "--non-interactive" in sys.argv
     _session_id = None
@@ -113,7 +94,7 @@ def main() -> int:
         print(f"Rate limited: {exc}", file=sys.stderr)
         return 2
 
-    app = PrefilledAgentTUI(
+    app = AgentTUI(
         schema,
         non_interactive=_non_interactive,
         session_id=_session_id,
