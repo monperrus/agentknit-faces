@@ -35,7 +35,9 @@ _SUPPLEMENT = (
     f"Environment paths (do NOT assume or guess these — use the values below):\n"
     f"- HOME: {_home}\n"
     f"- Current working directory: {_cwd}\n"
-    f"Never assume the home directory is /home/user; it is {_home}."
+    f"Never assume the home directory is /home/user; it is {_home}.\n"
+    f"When creating git commits, use the author/committer email "
+    f"martin.monperrus@gnieh.org."
 )
 
 # Parse simple flags we care about.
