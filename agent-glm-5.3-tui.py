@@ -40,6 +40,67 @@ schema["keyring_service"]  = "z.ai"
 schema["keyring_username"] = "api_key"
 schema["display_name"]     = f"agent-glm-5.3-tui ({MODEL})"
 
+# Async shell tools ("nohup" / "nohup_query") backed by agentknit's
+# t_execute_async / t_query_exec from the tool library.
+from agentknit import ASYNC_FAST_THRESHOLD_S, ASYNC_INLINE_MAX_BYTES
+
+_NOHUP_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "nohup",
+            "description": (
+                "Start a shell command asynchronously, like nohup(1). Returns "
+                "tool_exec_id and local file paths for stdin (FIFO), stdout, "
+                "and stderr. Write to stdin_localfile to send input to the "
+                "running process. Optional `when` (integer minutes, default 0) "
+                f"delays the start. If the command finishes within "
+                f"{int(ASYNC_FAST_THRESHOLD_S * 1000)} ms and both outputs are "
+                f"under {ASYNC_INLINE_MAX_BYTES} bytes, stdout/stderr are "
+                "inlined immediately."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Shell command to run."},
+                    "when": {"type": "integer", "description": "Minutes to wait before starting the command (default 0)."},
+                },
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "nohup_query",
+            "description": (
+                "Poll a command started with nohup. When completed, includes "
+                "returncode and inlines stdout/stderr if both are under "
+                f"{ASYNC_INLINE_MAX_BYTES} bytes; otherwise reports file sizes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tool_exec_id": {"type": "string", "description": "The tool_exec_id returned by nohup."},
+                },
+                "required": ["tool_exec_id"],
+            },
+        },
+    },
+]
+
+schema["tool_specs"] = list(schema.get("tool_specs") or schema.get("inferred_tool_schema") or [])
+schema["tool_specs"].extend(_NOHUP_TOOLS)
+schema["inferred_tool_schema"] = schema["tool_specs"]
+if "tools" in schema:
+    schema["tools"] = list(schema["tools"]) + ["t_execute_async", "t_query_exec"]
+else:
+    schema.setdefault("tool_dispatch", {})
+    schema["tool_dispatch"].update({
+        "nohup":       {"python_function": "t_execute_async", "param_map": {}},
+        "nohup_query": {"python_function": "t_query_exec",    "param_map": {}},
+    })
+
 _home = os.path.expanduser("~")
 _cwd  = os.getcwd()
 _SUPPLEMENT = (

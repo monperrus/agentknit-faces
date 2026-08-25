@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Agent wrapper for glm-5.3 via api.z.ai.
+"""Agent wrapper for glm-4.5-air via api.z.ai.
 
-glm-5.3 is z.ai's flagship model, on the same coding endpoint as glm-5.2.
-API key retrieved from keyring (service: z.ai, username: api_key).
+glm-4.5-air is z.ai's lightweight (flash/mini) model on the same endpoint
+as glm-5.2. API key retrieved from keyring (service: z.ai, username: api_key).
 
 Usage:
-    agent-glm-5.3 "<task>"           # one-shot
-    agent-glm-5.3                    # interactive REPL
-    agent-glm-5.3 --non-interactive  # disable ask_user_question tool
+    agent-glm-4.5-air "<task>"           # one-shot
+    agent-glm-4.5-air                    # interactive REPL
+    agent-glm-4.5-air --non-interactive  # disable ask_user_question tool
 """
 
 import os
@@ -18,7 +18,7 @@ sys.path.insert(0, project_root)
 
 import agentknit
 
-MODEL    = "glm-5.3"
+MODEL    = "glm-4.5-air"
 ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
 
 # Load spec and inject keyring config so agentknit resolves the API key
@@ -96,9 +96,7 @@ _SUPPLEMENT = (
     f"Environment paths (do NOT assume or guess these — use the values below):\n"
     f"- HOME: {_home}\n"
     f"- Current working directory: {_cwd}\n"
-    f"Never assume the home directory is /home/user; it is {_home}.\n"
-    f"When creating git commits, use the author/committer email "
-    f"martin.monperrus@gnieh.org."
+    f"Never assume the home directory is /home/user; it is {_home}."
 )
 
 # Parse simple flags we care about.
