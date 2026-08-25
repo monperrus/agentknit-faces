@@ -40,86 +40,11 @@ schema["keyring_service"]  = "z.ai"
 schema["keyring_username"] = "api_key"
 schema["display_name"]     = f"agent-glm-5.3-tui ({MODEL})"
 
-# Async shell tools ("nohup" / "nohup_query") backed by agentknit's
-# t_execute_async / t_query_exec from the tool library. "nohup" wraps the
-# command in `timeout(1)` to bound execution (default 10 minutes).
-from agentknit import ASYNC_FAST_THRESHOLD_S, ASYNC_INLINE_MAX_BYTES
-from agentknit import t_execute_async as _t_execute_async
+# Async shell tools ("nohup" / "nohup_query"): definitions and implementations
+# live in agentknit.async_toolkit; one call wires specs + dispatch.
+from agentknit.async_toolkit import enable_nohup
 
-_NOHUP_TIMEOUT_MIN = 10
-
-
-def _nohup(command: str, timeout: int = _NOHUP_TIMEOUT_MIN) -> tuple[str, dict[str, object]]:
-    """Bound the command with timeout(1) then hand off to t_execute_async."""
-    return _t_execute_async(f"timeout {int(timeout) * 60} {command}")
-
-_NOHUP_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "nohup",
-            "description": (
-                "Start a shell command asynchronously, like nohup(1). Returns "
-                "tool_exec_id and local file paths for stdin (FIFO), stdout, "
-                "and stderr. Write to stdin_localfile to send input to the "
-                "running process. Execution is bounded: the command is killed "
-                f"after `timeout` minutes (default {_NOHUP_TIMEOUT_MIN}). If "
-                f"the command finishes within {int(ASYNC_FAST_THRESHOLD_S * 1000)} ms "
-                f"and both outputs are under {ASYNC_INLINE_MAX_BYTES} bytes, "
-                "stdout/stderr are inlined immediately."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "Shell command to run."},
-                    "timeout": {
-                        "type": "integer",
-                        "description": (
-                            "Maximum minutes the command may run before being "
-                            f"killed (default {_NOHUP_TIMEOUT_MIN})."
-                        ),
-                    },
-                },
-                "required": ["command"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "nohup_query",
-            "description": (
-                "Poll a command started with nohup. When completed, includes "
-                "returncode and inlines stdout/stderr if both are under "
-                f"{ASYNC_INLINE_MAX_BYTES} bytes; otherwise reports file sizes."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "tool_exec_id": {"type": "string", "description": "The tool_exec_id returned by nohup."},
-                },
-                "required": ["tool_exec_id"],
-            },
-        },
-    },
-]
-
-schema["tool_specs"] = list(schema.get("tool_specs") or schema.get("inferred_tool_schema") or [])
-schema["tool_specs"].extend(_NOHUP_TOOLS)
-schema["inferred_tool_schema"] = schema["tool_specs"]
-# Register the local _nohup wrapper (t_query_exec lives in TOOL_LIBRARY
-# already) and route the dispatch entries through it.
-from agentknit.tool_library import TOOL_LIBRARY
-
-TOOL_LIBRARY["_nohup"] = _nohup
-if "tools" in schema:
-    schema["tools"] = list(schema["tools"]) + ["_nohup", "t_query_exec"]
-else:
-    schema.setdefault("tool_dispatch", {})
-    schema["tool_dispatch"].update({
-        "nohup":       {"python_function": "_nohup",      "param_map": {}},
-        "nohup_query": {"python_function": "t_query_exec", "param_map": {}},
-    })
+enable_nohup(schema)
 
 _home = os.path.expanduser("~")
 _cwd  = os.getcwd()
