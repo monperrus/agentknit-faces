@@ -11,6 +11,7 @@ Symlinked into `~/bin` so each launcher is runnable by name, e.g. `agent-glm-5.3
 
 | Script | Backend |
 |---|---|
+| `agent-deepseek-v4-flash.py` | DeepSeek V4 Flash via the official DeepSeek API (`api.deepseek.com`) |
 | `agent-deepseek-v4-flash-async.py` | Abstract async agent loop, parametrised by model — imported by the other DeepSeek launchers |
 | `agent-deepseek-v4-flash-haiku.py` | DeepSeek V4 Flash via a Claude Haiku backend |
 | `agent-deepseek-v4-flash-zen.py` / `-zen-sync.py` | DeepSeek V4 Flash (free) via the Zen backend |
