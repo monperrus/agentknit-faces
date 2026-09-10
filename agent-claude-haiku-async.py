@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Async agent — DeepSeek V4 Flash via Claude Haiku backend.
+"""Async agent — Claude Haiku backend.
 
 Uses a stable per-directory session ID so each run from the same working
 directory resumes the same conversation, letting the API reuse its
 prefix cache.
 
 Usage:
-    agent-deepseek-v4-flash-haiku "<task>"           # one-shot
-    agent-deepseek-v4-flash-haiku                    # interactive REPL
-    agent-deepseek-v4-flash-haiku --session <id>     # explicit session override
+    agent-claude-haiku-async "<task>"           # one-shot
+    agent-claude-haiku-async                    # interactive REPL
+    agent-claude-haiku-async --session <id>     # explicit session override
 """
 
 from __future__ import annotations
