@@ -29,6 +29,14 @@ Prerequisite: the ``zai`` profile in the production
       "tool_strategy": "debloat"
     }
 
+The ``agentknit`` profile (``service/profiles/agentknit.json``) is the
+same upstream, restricted via ``allowed_tools`` to the agentknit toolset
+(read_file, write_file, str_replace, exec_shell, nohup, nohup_query,
+nohup_wait) with debloating served from the content-addressed
+``tools-debloated`` cache. Select it client-side:
+
+    SUPERLEAN_PROFILE=agentknit agent-glm-5.3-tui-superlean.py
+
 Usage:
     agent-glm-5.3-tui-superlean.py "<task>"          # start TUI with task prefilled
     agent-glm-5.3-tui-superlean.py                  # interactive TUI
@@ -44,7 +52,10 @@ import time
 MODEL = "glm-5.3"
 UPSTREAM_ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
 GATEWAY = os.environ.get("SUPERLEAN_ENDPOINT", "https://api.superleanai.com")
-PROFILE_NAME = "zai"
+# The gateway profile is part of the client's routing decision, not server
+# config: the profile name is a path segment of the gateway URL, so pointing
+# the client at a different profile is purely a client-side change.
+PROFILE_NAME = os.environ.get("SUPERLEAN_PROFILE", "zai")
 KEYRING_SERVICE = "z.ai"
 KEYRING_USERNAME = "api_key"
 
