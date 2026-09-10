@@ -1,27 +1,27 @@
 #!/usr/bin/env python3
-"""Textual TUI agent for glm-5.3 via api.z.ai, routed through superleanai.
+"""Textual TUI agent for glm-5.3 via api.z.ai, routed through the superleanai production middleware.
 
 Same agent as agent-glm-5.3-tui.py, but instead of hitting
-https://api.z.ai/api/coding/paas/v4 directly, every request goes through a
-local superleanai ``cmd/proxy`` instance (started on demand) configured
-with a ``zai`` profile:
+https://api.z.ai/api/coding/paas/v4 directly, every request goes through the
+production superleanai gateway:
 
-    client --> http://127.0.0.1:<port>/zai/v1/chat/completions
+    client --> https://api.superleanai.com/zai/v1/chat/completions
            --> https://api.z.ai/api/coding/paas/v4/chat/completions
 
-so the middleware debloats/blocks tools and logs usage like for any
-other profile.
+so the middleware debloats/blocks tools and logs usage in the production
+Postgres (visible on the dashboard), like for any other profile.
 
-The TUI authenticates to the proxy with a short-lived HS256 JWT minted
+The TUI authenticates to the gateway with a short-lived HS256 JWT minted
 locally (same claims as ``cmd/createjwt --byok``): the JWT's
-``openrouter_key`` claim carries the real z.ai API key, which the proxy
-swaps into the upstream ``Authorization`` header.  The z.ai key is read
-from the system keyring (service ``z.ai``, username ``api_key``) and the
-signing secret from ``JWT_SECRET`` (env var or keyring service
-``login2``); neither is ever placed in this script or on a command line.
+``openrouter_key`` claim carries the real z.ai API key, which the gateway
+swaps into the upstream ``Authorization`` header.  The z.ai key comes from
+the system keyring (service ``z.ai``, username ``api_key``); the signing
+secret is fetched over SSH from the production host (``SUPERLEAN_SSH_HOST``,
+default ``superlean``) unless ``SUPERLEAN_JWT_SECRET`` is set.  No secret is
+ever placed in this script or on a command line.
 
-Prerequisite: a ``zai`` profile in the superleanai profiles directory
-(--profiles, or the profiles/ dir next to the repo checkout):
+Prerequisite: the ``zai`` profile in the production
+``service/profiles/zai.json`` (deployed via the regular CD pipeline):
 
     {
       "target_url": "https://api.z.ai/api/coding/paas/v4",
@@ -36,25 +36,19 @@ Usage:
     agent-glm-5.3-tui-superlean.py --non-interactive # drop ask_user* tools
 """
 
-import atexit
 import os
 import secrets as _secrets
-import signal
-import socket
 import subprocess
 import sys
 import time
-import urllib.request
 
 MODEL = "glm-5.3"
 UPSTREAM_ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
+GATEWAY = os.environ.get("SUPERLEAN_ENDPOINT", "https://api.superleanai.com")
 PROFILE_NAME = "zai"
 KEYRING_SERVICE = "z.ai"
 KEYRING_USERNAME = "api_key"
-
-SUPERLEAN_ROOT = os.environ.get(
-    "SUPERLEANAI_ROOT", os.path.expanduser("~/workspace/superleanai")
-)
+SSH_HOST = os.environ.get("SUPERLEAN_SSH_HOST", "superlean")
 
 project_root = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, project_root)
@@ -72,15 +66,38 @@ def _keyring_password(service: str, username: str) -> str:
 
 
 def _jwt_secret() -> str:
-    return os.environ.get("JWT_SECRET") or _keyring_password("login2", "JWT_SECRET")
+    """Production JWT_SECRET: env override, else read from the server over SSH.
+
+    The secret only lives in the production .env (mode 0600, root-readable),
+    so it is fetched on demand instead of being copied into the local keyring.
+    """
+    override = os.environ.get("SUPERLEAN_JWT_SECRET")
+    if override:
+        return override
+    try:
+        out = subprocess.check_output(
+            ["ssh", "-o", "BatchMode=yes", SSH_HOST,
+             "sudo -n grep '^JWT_SECRET=' /home/superleanai-prod/superleanai/.env"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+        ).strip()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Cannot read JWT_SECRET from {SSH_HOST} ({exc}). "
+            "Fix SSH/sudo access or set SUPERLEAN_JWT_SECRET."
+        ) from exc
+    if "=" not in out:
+        raise RuntimeError(f"Unexpected JWT_SECRET response from {SSH_HOST}.")
+    return out.split("=", 1)[1]
 
 
-def _mint_proxy_jwt(zai_api_key: str) -> str:
-    """Mint the proxy auth token, same claims as cmd/createjwt --byok."""
+def _mint_gateway_jwt(zai_api_key: str) -> str:
+    """Mint the gateway auth token, same claims as cmd/createjwt --byok."""
     import jwt  # PyJWT, also used by superleanai's Python predecessor
 
     claims = {
-        "email": "local-superlean",
+        "email": "martin@monperrus.net",
         "openrouter_key": zai_api_key,  # forwarded upstream as the Bearer key
         "jti": _secrets.token_hex(8),
         "iat": int(time.time()),
@@ -88,60 +105,7 @@ def _mint_proxy_jwt(zai_api_key: str) -> str:
     return jwt.encode(claims, _jwt_secret(), algorithm="HS256")
 
 
-def _pick_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-def _start_proxy() -> tuple[subprocess.Popen, int]:
-    """Start ``go run ./cmd/proxy`` on a free loopback port, wait until up."""
-    if not os.path.isdir(os.path.join(SUPERLEAN_ROOT, "cmd", "proxy")):
-        raise RuntimeError(
-            f"superleanai checkout not found at {SUPERLEAN_ROOT} "
-            "(set SUPERLEANAI_ROOT to override)."
-        )
-    profiles = os.path.join(SUPERLEAN_ROOT, "profiles")
-    if not os.path.isfile(os.path.join(profiles, f"{PROFILE_NAME}.json")):
-        raise RuntimeError(
-            f"Missing profile {os.path.join(profiles, PROFILE_NAME + '.json')} "
-            f'(expected e.g. {{"target_url": "{UPSTREAM_ENDPOINT}", '
-            f'"path_strip_prefix": "/v1", "tool_strategy": "debloat"}}).'
-        )
-    port = _pick_port()
-    proc = subprocess.Popen(
-        ["go", "run", "./cmd/proxy", "--port", str(port), "--profiles", profiles],
-        cwd=SUPERLEAN_ROOT,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-
-    def _stop() -> None:
-        if proc.poll() is None:
-            try:
-                os.killpg(proc.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-
-    atexit.register(_stop)
-
-    deadline = time.monotonic() + 60  # first `go run` may compile
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            raise RuntimeError(f"superleanai proxy exited early (code {proc.returncode}).")
-        try:
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/", timeout=1
-            ) as resp:
-                if resp.status == 200:
-                    return proc, port
-        except Exception:
-            time.sleep(0.25)
-    raise RuntimeError("superleanai proxy did not come up within 60s.")
-
-
-# Ensure generated resume commands return to this TUI launcher.
+# Resume hints must point here, not at the generic agentknit CLI.
 os.environ["AGENTKNIT_RESUME_COMMAND"] = os.path.realpath(__file__)
 
 import agentknit
@@ -171,11 +135,11 @@ _SUPPLEMENT = (
 )
 
 
-def _build_schema(port: int, token: str) -> dict:
+def _build_schema(token: str) -> dict:
     schema = agentknit.load_specification(MODEL, UPSTREAM_ENDPOINT)
-    # Route through the local middleware; auth is the minted JWT, supplied
-    # via env var so it never appears on a command line.
-    schema["endpoint"] = f"http://127.0.0.1:{port}/{PROFILE_NAME}/v1"
+    # Route through the production middleware; auth is the minted JWT,
+    # supplied via env var so it never appears on a command line.
+    schema["endpoint"] = f"{GATEWAY}/{PROFILE_NAME}/v1"
     schema.pop("keyring_service", None)
     schema.pop("keyring_username", None)
     schema.pop("auth", None)
@@ -212,12 +176,11 @@ def main() -> int:
     _task = " ".join(_task_args) if _task_args else None
 
     try:
-        token = _mint_proxy_jwt(
+        token = _mint_gateway_jwt(
             _keyring_password(KEYRING_SERVICE, KEYRING_USERNAME)
         )
-        _proc, port = _start_proxy()
-        print(f"superleanai middleware on http://127.0.0.1:{port}/{PROFILE_NAME}/v1")
-        schema = _build_schema(port, token)
+        schema = _build_schema(token)
+        print(f"routed through {GATEWAY}/{PROFILE_NAME}/v1")
 
         validate_schema(schema)
         agentknit.check_and_display_pricing(schema)
