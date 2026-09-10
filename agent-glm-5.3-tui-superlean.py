@@ -15,10 +15,10 @@ The TUI authenticates to the gateway with a short-lived HS256 JWT minted
 locally (same claims as ``cmd/createjwt --byok``): the JWT's
 ``openrouter_key`` claim carries the real z.ai API key, which the gateway
 swaps into the upstream ``Authorization`` header.  The z.ai key comes from
-the system keyring (service ``z.ai``, username ``api_key``); the signing
-secret is fetched over SSH from the production host (``SUPERLEAN_SSH_HOST``,
-default ``superlean``) unless ``SUPERLEAN_JWT_SECRET`` is set.  No secret is
-ever placed in this script or on a command line.
+the system keyring (service ``z.ai``, username ``api_key``) and the signing
+secret from keyring service ``login2`` (``SUPERLEAN_JWT_SECRET``, env var
+of the same name takes precedence).  No secret is ever placed in this
+script or on a command line.
 
 Prerequisite: the ``zai`` profile in the production
 ``service/profiles/zai.json`` (deployed via the regular CD pipeline):
@@ -38,7 +38,6 @@ Usage:
 
 import os
 import secrets as _secrets
-import subprocess
 import sys
 import time
 
@@ -48,7 +47,6 @@ GATEWAY = os.environ.get("SUPERLEAN_ENDPOINT", "https://api.superleanai.com")
 PROFILE_NAME = "zai"
 KEYRING_SERVICE = "z.ai"
 KEYRING_USERNAME = "api_key"
-SSH_HOST = os.environ.get("SUPERLEAN_SSH_HOST", "superlean")
 
 project_root = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, project_root)
@@ -66,30 +64,12 @@ def _keyring_password(service: str, username: str) -> str:
 
 
 def _jwt_secret() -> str:
-    """Production JWT_SECRET: env override, else read from the server over SSH.
-
-    The secret only lives in the production .env (mode 0600, root-readable),
-    so it is fetched on demand instead of being copied into the local keyring.
-    """
+    """Gateway JWT_SECRET: env override, else the local keyring."""
     override = os.environ.get("SUPERLEAN_JWT_SECRET")
     if override:
         return override
-    try:
-        out = subprocess.check_output(
-            ["ssh", "-o", "BatchMode=yes", SSH_HOST,
-             "sudo -n grep '^JWT_SECRET=' /home/superleanai-prod/superleanai/.env"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-            timeout=30,
-        ).strip()
-    except Exception as exc:
-        raise RuntimeError(
-            f"Cannot read JWT_SECRET from {SSH_HOST} ({exc}). "
-            "Fix SSH/sudo access or set SUPERLEAN_JWT_SECRET."
-        ) from exc
-    if "=" not in out:
-        raise RuntimeError(f"Unexpected JWT_SECRET response from {SSH_HOST}.")
-    return out.split("=", 1)[1]
+    value = _keyring_password("login2", "SUPERLEAN_JWT_SECRET")
+    return value
 
 
 def _mint_gateway_jwt(zai_api_key: str) -> str:
