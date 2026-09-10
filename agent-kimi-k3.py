@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""Run agentknit with Kimi K3 through the official Kimi Coding Plan API.
+
+The Coding Plan is distinct from Kimi's pay-as-you-go Open Platform.  Its
+credential is read from the system keyring (service ``login2``, username
+``kimi_api_key``), never from a source-controlled environment variable.
+
+Usage:
+    agent-kimi-k3.py "<task>"           # one-shot
+    agent-kimi-k3.py                    # interactive REPL
+    agent-kimi-k3.py --session <id>     # resume a previous session
+    agent-kimi-k3.py --non-interactive  # disable ask_user_question
+    echo "<task>" | agent-kimi-k3.py    # task on stdin
+"""
+
+import os
+import sys
+
+
+MODEL = "k3"
+ENDPOINT = "https://api.kimi.com/coding/v1"
+
+project_root = os.path.dirname(os.path.realpath(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+import agentknit
+
+
+# Kimi Coding Plan keys are separate from Kimi Open Platform keys.  Agentknit
+# resolves this pair directly with keyring, so no key is put into the process
+# environment or command line.
+schema = agentknit.load_specification(MODEL, ENDPOINT)
+schema["keyring_service"] = "login2"
+schema["keyring_username"] = "kimi_api_key"
+schema["display_name"] = "Kimi K3 (Kimi Coding Plan)"
+
+_home = os.path.expanduser("~")
+_cwd = os.getcwd()
+_SUPPLEMENT = (
+    "Environment paths (do NOT assume or guess these — use the values below):\n"
+    f"- HOME: {_home}\n"
+    f"- Current working directory: {_cwd}\n"
+    f"Never assume the home directory is /home/user; it is {_home}.\n"
+    "When creating git commits, use the author/committer email "
+    "martin.monperrus@gnieh.org."
+)
+
+
+def _create_k3_client():
+    """Return a client that meets K3's fixed-temperature API requirement.
+
+    K3's Coding Plan endpoint currently accepts only ``temperature=1``, while
+    agentknit's generic agent loop intentionally sends ``temperature=0``.
+    Keep that provider adaptation local to this launcher rather than changing
+    the generic loop for every other provider.
+    """
+    client = agentknit.create_client(schema)
+    create = client.chat.completions.create
+
+    def create_with_k3_temperature(*args, **kwargs):
+        kwargs["temperature"] = 1
+        return create(*args, **kwargs)
+
+    client.chat.completions.create = create_with_k3_temperature
+    return client
+
+
+def main() -> None:
+    """Dispatch a one-shot task, stdin task, or interactive agent REPL."""
+    non_interactive = "--non-interactive" in sys.argv
+    session_id = None
+    if "--session" in sys.argv:
+        index = sys.argv.index("--session")
+        if index + 1 < len(sys.argv):
+            session_id = sys.argv[index + 1]
+
+    flags_with_value = {"--session"}
+    task_args: list[str] = []
+    skip_next = False
+    for argument in sys.argv[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if argument in flags_with_value:
+            skip_next = True
+            continue
+        if argument.startswith("--"):
+            continue
+        task_args.append(argument)
+
+    task = " ".join(task_args) if task_args else None
+    common = dict(
+        non_interactive=non_interactive,
+        session_id=session_id,
+        system_prompt_supplement=_SUPPLEMENT,
+        client=_create_k3_client(),
+    )
+    if task:
+        agentknit.run_task(schema, task, **common)
+    elif not sys.stdin.isatty():
+        task = sys.stdin.read().strip()
+        if task:
+            agentknit.run_task(schema, task, **common)
+    else:
+        agentknit.run_repl(schema, **common)
+
+
+if __name__ == "__main__":
+    main()
