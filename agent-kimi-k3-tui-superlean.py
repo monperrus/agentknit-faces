@@ -12,8 +12,9 @@ Two gateway modes, selected by ``--local``:
 
 * production (default) -- https://api.superleanai.com, which logs every
   request to the production Postgres database. The JWT is signed with the
-  production JWT_SECRET (keyring ``login2``/``JWT_SECRET_PROD``, falling
-  back to ``JWT_SECRET``).
+  production JWT_SECRET (keyring ``login2``/``SUPERLEAN_JWT_SECRET``, env
+  var ``SUPERLEAN_JWT_SECRET`` or ``JWT_SECRET`` as fallbacks), matching
+  agent-glm-5.3-tui-superlean.py.
 * local (``--local``) -- spins up ``go run ./cmd/proxy`` from the local
   superleanai checkout on a free loopback port; traffic is only logged
   locally (if SUPERLEANAI_DATABASE_URL is set).
@@ -71,8 +72,8 @@ def _jwt_secret(local: bool) -> str:
         return os.environ.get("JWT_SECRET") or _keyring_password("JWT_SECRET")
     # Production gateway signs with the secret from the prod .env.
     return (
-        os.environ.get("JWT_SECRET_PROD")
-        or _keyring_password("JWT_SECRET_PROD", required=False)
+        os.environ.get("SUPERLEAN_JWT_SECRET")
+        or _keyring_password("SUPERLEAN_JWT_SECRET", required=False)
         or os.environ.get("JWT_SECRET")
         or _keyring_password("JWT_SECRET")
     )
