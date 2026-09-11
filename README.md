@@ -39,6 +39,21 @@ env files):
 | deepseek faces | `login2` | `deepseek_api_key` |
 | kimi faces | `login2` | `kimi_api_key` |
 
+### Minimum cacheable prompt size
+
+Providers only report cache accounting above a floor, and agentknit's strict
+cache-proof mode needs to know it (`min_cacheable_tokens`) so that a
+legitimately uncacheable short prompt is not reported as a caching failure.
+The faces declare the floor in their schema:
+
+| Backend | Floor | Basis |
+|---|---|---|
+| z.ai (`glm-5.3`, `glm-4.5-air`) | 66 prompt tokens | measured: prefixes are cached in 64-token blocks; prompt 63/64/65 → `cached_tokens: 0`, prompt 66 → `cached_tokens: 64` |
+| Kimi Coding Plan (`k3`) | 1024 prompt tokens | conservative estimate (floor not published; fields appear from ~3k prompt tokens) |
+
+See `tests/test_min_cacheable_tokens.py` for the measurement notes and the
+regression tests.
+
 ## Usage
 
 ```bash

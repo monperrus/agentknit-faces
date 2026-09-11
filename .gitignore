@@ -10,3 +10,5 @@ agent_glm_4_5_air.py
 agent_deepseek_v4_flash.py
 agent_kimi_k3.py
 agent_kimi_k3_tui.py
+.pytest_cache/
+.hypothesis/

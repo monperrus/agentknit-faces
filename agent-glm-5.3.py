@@ -19,6 +19,16 @@ from agentknit.async_toolkit import enable_nohup
 MODEL    = "glm-5.3"
 ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
 
+# z.ai caches prompt prefixes in 64-token blocks and reports
+# ``cached_tokens: 0`` for any prompt too short to fill a whole block, so such
+# a call is not a caching failure.  Measured against api.z.ai on 2026-09-12:
+# glm-5.3 reports no cache hit at 63/64/65 prompt tokens and its first hit
+# (64 cached tokens) at 66.  Without this floor, agentknit's strict cache-proof
+# mode flags every sub-block prompt as "no cache hit after the first call", and
+# fails closed on the first call of a session whose response carries no cache
+# accounting at all.
+MIN_CACHEABLE_TOKENS = 66
+
 # Model-specific system prompt supplement to counter glm's tendency
 # to assume HOME is /home/user.
 _home = os.path.expanduser("~")
@@ -45,6 +55,8 @@ def entry() -> None:
     schema["keyring_username"] = "api_key"
     # Context window measured by llmprobe (reports/glm-5.3).
     schema["context_window"] = 1048576
+    # z.ai's minimum cacheable prompt prefix (see MIN_CACHEABLE_TOKENS).
+    schema["min_cacheable_tokens"] = MIN_CACHEABLE_TOKENS
 
     # Async shell tools ("nohup" / "nohup_query"): definitions and
     # implementations live in agentknit.async_toolkit; one call wires specs +

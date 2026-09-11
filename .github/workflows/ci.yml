@@ -18,21 +18,26 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Install the faces (with the TUI extra) and test tooling
+        run: |
+          pip install --upgrade pip
+          pip install ".[tui]" pytest "ruff>=0.15.12" build uv
+
       - name: Lint with ruff
         run: |
           # Rule selection is pinned in pyproject.toml ([tool.ruff.lint] select),
           # so any recent ruff works.
-          pip install "ruff>=0.15.12"
-          ruff check agent-*.py
+          ruff check agent-*.py tests/
+
+      - name: Run tests
+        run: python -m pytest -v
 
       - name: Build wheel
         run: |
-          pip install build
           ./build-modules.sh
           python -m build --wheel
 
       - name: Smoke-test entry points from the wheel
         run: |
-          pip install uv
           uvx --from dist/agentknit_faces-*.whl python -c \
             "import agent_glm_5_3, agent_glm_4_5_air, agent_deepseek_v4_flash, agent_kimi_k3; print('faces import OK')"

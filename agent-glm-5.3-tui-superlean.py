@@ -64,6 +64,14 @@ PROFILE_NAME = os.environ.get("SUPERLEAN_PROFILE", "zai")
 KEYRING_SERVICE = "login2"
 KEYRING_USERNAME = "SUPERLEAN_API_KEY_ZAI"
 
+# z.ai caches prompt prefixes in 64-token blocks and reports
+# ``cached_tokens: 0`` for any prompt too short to fill a whole block (and no
+# cache field at all when the gateway answers before reaching the model), so
+# declaring the floor keeps agentknit's strict cache-proof mode from failing
+# closed on such responses.  Upstream value measured on 2026-09-12: glm-5.3
+# reports no cache hit at 63/64/65 prompt tokens, its first hit at 66.
+MIN_CACHEABLE_TOKENS = 66
+
 
 def _keyring_password(service: str, username: str) -> str:
     import keyring
@@ -127,6 +135,8 @@ def _build_schema(token: str) -> dict:
     schema["display_name"] = f"agent-glm-5.3-tui-superlean ({MODEL})"
     # Context window measured by llmprobe (reports/glm-5.3).
     schema["context_window"] = 1048576
+    # Upstream z.ai's minimum cacheable prefix (see MIN_CACHEABLE_TOKENS).
+    schema["min_cacheable_tokens"] = MIN_CACHEABLE_TOKENS
     enable_nohup(schema)
     return schema
 
