@@ -11,14 +11,21 @@ production superleanai gateway:
 so the middleware debloats/blocks tools and logs usage in the production
 Postgres (visible on the dashboard), like for any other profile.
 
-The TUI authenticates to the gateway with a short-lived HS256 JWT minted
-locally (same claims as ``cmd/createjwt --byok``): the JWT's
-``openrouter_key`` claim carries the real z.ai API key, which the gateway
-swaps into the upstream ``Authorization`` header.  The z.ai key comes from
-the system keyring (service ``z.ai``, username ``api_key``) and the signing
-secret from keyring service ``login2`` (``SUPERLEAN_JWT_SECRET``, env var
-of the same name takes precedence).  No secret is ever placed in this
-script or on a command line.
+The TUI authenticates to the gateway with a long-lived v2 EdDSA JWT bound
+to an ``api_keys`` row in the production database (provider
+``openrouter``, scope ``proxy:openrouter``; the billing bypass substitutes
+the operator-configured upstream credential). The token lives in the
+system keyring (service ``login2``, username ``SUPERLEAN_API_KEY_ZAI``;
+env var of the same name takes precedence). If the row is revoked or
+rotated, mint a replacement JWT server-side over the new jti and update
+the keyring entry.
+
+Note: the production gateway no longer accepts self-minted HS256 BYOK
+tokens -- it requires v2 EdDSA JWTs (``internal/auth``), which only the
+dashboard signer (holder of the production Ed25519 private key) can
+issue.
+
+No secret is ever placed in this script or on a command line.
 
 Prerequisite: the ``zai`` profile in the production
 ``service/profiles/zai.json`` (deployed via the regular CD pipeline):
@@ -45,9 +52,7 @@ Usage:
 """
 
 import os
-import secrets as _secrets
 import sys
-import time
 
 MODEL = "glm-5.3"
 UPSTREAM_ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
@@ -56,8 +61,8 @@ GATEWAY = os.environ.get("SUPERLEAN_ENDPOINT", "https://api.superleanai.com")
 # config: the profile name is a path segment of the gateway URL, so pointing
 # the client at a different profile is purely a client-side change.
 PROFILE_NAME = os.environ.get("SUPERLEAN_PROFILE", "zai")
-KEYRING_SERVICE = "z.ai"
-KEYRING_USERNAME = "api_key"
+KEYRING_SERVICE = "login2"
+KEYRING_USERNAME = "SUPERLEAN_API_KEY_ZAI"
 
 project_root = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, project_root)
@@ -74,26 +79,12 @@ def _keyring_password(service: str, username: str) -> str:
     return value
 
 
-def _jwt_secret() -> str:
-    """Gateway JWT_SECRET: env override, else the local keyring."""
-    override = os.environ.get("SUPERLEAN_JWT_SECRET")
+def _gateway_token() -> str:
+    """Dashboard-bound v2 JWT for the production gateway (see module docstring)."""
+    override = os.environ.get(KEYRING_USERNAME)
     if override:
         return override
-    value = _keyring_password("login2", "SUPERLEAN_JWT_SECRET")
-    return value
-
-
-def _mint_gateway_jwt(zai_api_key: str) -> str:
-    """Mint the gateway auth token, same claims as cmd/createjwt --byok."""
-    import jwt  # PyJWT, also used by superleanai's Python predecessor
-
-    claims = {
-        "email": "martin@monperrus.net",
-        "openrouter_key": zai_api_key,  # forwarded upstream as the Bearer key
-        "jti": _secrets.token_hex(8),
-        "iat": int(time.time()),
-    }
-    return jwt.encode(claims, _jwt_secret(), algorithm="HS256")
+    return _keyring_password(KEYRING_SERVICE, KEYRING_USERNAME)
 
 
 # Resume hints must point here, not at the generic agentknit CLI.
@@ -167,9 +158,7 @@ def main() -> int:
     _task = " ".join(_task_args) if _task_args else None
 
     try:
-        token = _mint_gateway_jwt(
-            _keyring_password(KEYRING_SERVICE, KEYRING_USERNAME)
-        )
+        token = _gateway_token()
         schema = _build_schema(token)
         print(f"routed through {GATEWAY}/{PROFILE_NAME}/v1")
 
