@@ -6,36 +6,21 @@ credential is read from the system keyring (service ``login2``, username
 ``kimi_api_key``), never from a source-controlled environment variable.
 
 Usage:
-    agent-kimi-k3.py "<task>"           # one-shot
-    agent-kimi-k3.py                    # interactive REPL
-    agent-kimi-k3.py --session <id>     # resume a previous session
-    agent-kimi-k3.py --non-interactive  # disable ask_user_question
-    echo "<task>" | agent-kimi-k3.py    # task on stdin
+    agentknit-kimi-k3 "<task>"           # one-shot
+    agentknit-kimi-k3                    # interactive REPL
+    agentknit-kimi-k3 --session <id>     # resume a previous session
+    agentknit-kimi-k3 --non-interactive  # disable ask_user_question
+    echo "<task>" | agentknit-kimi-k3    # task on stdin
 """
 
 import os
 import sys
 
-
-MODEL = "k3"
-ENDPOINT = "https://api.kimi.com/coding/v1"
-
-project_root = os.path.dirname(os.path.realpath(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
 import agentknit
 
 
-# Kimi Coding Plan keys are separate from Kimi Open Platform keys.  Agentknit
-# resolves this pair directly with keyring, so no key is put into the process
-# environment or command line.
-schema = agentknit.load_specification(MODEL, ENDPOINT)
-schema["keyring_service"] = "login2"
-schema["keyring_username"] = "kimi_api_key"
-schema["display_name"] = "Kimi K3 (Kimi Coding Plan)"
-# Context window measured by llmprobe (reports/k3).
-schema["context_window"] = 1048576
+MODEL = "k3"
+ENDPOINT = "https://api.kimi.com/coding/v1"
 
 _home = os.path.expanduser("~")
 _cwd = os.getcwd()
@@ -49,7 +34,7 @@ _SUPPLEMENT = (
 )
 
 
-def _create_k3_client():
+def _create_k3_client(schema):
     """Return a client that meets K3's fixed-temperature API requirement.
 
     K3's Coding Plan endpoint currently accepts only ``temperature=1``, while
@@ -70,6 +55,19 @@ def _create_k3_client():
 
 def main() -> None:
     """Dispatch a one-shot task, stdin task, or interactive agent REPL."""
+    # Resume hints must re-invoke this launcher, not the generic agentknit CLI.
+    os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
+
+    # Kimi Coding Plan keys are separate from Kimi Open Platform keys.
+    # Agentknit resolves this pair directly with keyring, so no key is put
+    # into the process environment or command line.
+    schema = agentknit.load_specification(MODEL, ENDPOINT)
+    schema["keyring_service"] = "login2"
+    schema["keyring_username"] = "kimi_api_key"
+    schema["display_name"] = "Kimi K3 (Kimi Coding Plan)"
+    # Context window measured by llmprobe (reports/k3).
+    schema["context_window"] = 1048576
+
     non_interactive = "--non-interactive" in sys.argv
     session_id = None
     if "--session" in sys.argv:
@@ -96,7 +94,7 @@ def main() -> None:
         non_interactive=non_interactive,
         session_id=session_id,
         system_prompt_supplement=_SUPPLEMENT,
-        client=_create_k3_client(),
+        client=_create_k3_client(schema),
         # Kimi's Coding Plan only reports cache accounting once the prompt
         # crosses its minimum cacheable prefix (observed: fields appear from
         # ~3k prompt tokens; the exact floor is not published, 1024 is a

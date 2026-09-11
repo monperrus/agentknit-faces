@@ -6,27 +6,19 @@ The API key is read from the system keyring (service ``login2``, username
 or a command-line argument.
 
 Usage:
-    agent-kimi-k3-tui.py "<task>"           # open TUI with task prefilled
-    agent-kimi-k3-tui.py                    # interactive TUI
-    agent-kimi-k3-tui.py --session <id>     # resume a previous session
-    agent-kimi-k3-tui.py --non-interactive  # disable ask_user_question
+    agentknit-kimi-k3-tui "<task>"           # open TUI with task prefilled
+    agentknit-kimi-k3-tui                    # interactive TUI
+    agentknit-kimi-k3-tui --session <id>     # resume a previous session
+    agentknit-kimi-k3-tui --non-interactive  # disable ask_user_question
 """
 
 import os
 import sys
 
+import agentknit
 
 MODEL = "k3"
 ENDPOINT = "https://api.kimi.com/coding/v1"
-
-project_root = os.path.dirname(os.path.realpath(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-# Ensure generated resume commands return to this TUI launcher.
-os.environ["AGENTKNIT_RESUME_COMMAND"] = os.path.realpath(__file__)
-
-import agentknit
 from agentknit import validate_schema
 from agentknit.exceptions import (
     AgentSpecDisabledError,
@@ -38,13 +30,6 @@ from agentknit.exceptions import (
 from agentknit_tui import AgentTUI
 import agentknit_tui.app as agent_tui_app
 
-
-schema = agentknit.load_specification(MODEL, ENDPOINT)
-schema["keyring_service"] = "login2"
-schema["keyring_username"] = "kimi_api_key"
-schema["display_name"] = "Kimi K3 (Kimi Coding Plan)"
-# Context window measured by llmprobe (reports/k3).
-schema["context_window"] = 1048576
 
 _home = os.path.expanduser("~")
 _cwd = os.getcwd()
@@ -58,7 +43,7 @@ _SUPPLEMENT = (
 )
 
 
-def _create_k3_client(_schema: dict | None = None):
+def _create_k3_client(schema: dict | None = None):
     """Create a Coding Plan client with K3's mandatory temperature setting."""
     client = agentknit.create_client(schema)
     create = client.chat.completions.create
@@ -73,6 +58,16 @@ def _create_k3_client(_schema: dict | None = None):
 
 
 def main() -> int:
+    # Ensure generated resume commands return to this TUI launcher.
+    os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
+
+    schema = agentknit.load_specification(MODEL, ENDPOINT)
+    schema["keyring_service"] = "login2"
+    schema["keyring_username"] = "kimi_api_key"
+    schema["display_name"] = "Kimi K3 (Kimi Coding Plan)"
+    # Context window measured by llmprobe (reports/k3).
+    schema["context_window"] = 1048576
+
     non_interactive = "--non-interactive" in sys.argv
     session_id = None
     if "--session" in sys.argv:

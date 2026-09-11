@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentknit-faces"
+# Placeholder. The published version is decided at release time by
+# pyproject-bump-pypi, which reads the current version from PyPI and bumps
+# that; this value is only a fallback for a package PyPI has never seen.
+version = "0.999.0"
+description = "Thin launcher scripts (\"faces\") that run agentknit against a specific LLM, provider, or backend."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [
+    {name = "agentknit contributors"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "agentknit>=0.2.0,<1",
+    "keyring>=25",
+]
+
+[project.optional-dependencies]
+tui = ["agentknit-tui>=0.2.0,<1"]
+
+[project.urls]
+Homepage = "https://github.com/monperrus/agentknit-faces"
+Repository = "https://github.com/monperrus/agentknit-faces"
+Issues = "https://github.com/monperrus/agentknit-faces/issues"
+
+[project.scripts]
+"agentknit-glm-5.3" = "agent_glm_5_3:entry"
+"agentknit-glm-5.3-tui" = "agent_glm_5_3_tui:main"
+"agentknit-glm-4.5-air" = "agent_glm_4_5_air:entry"
+"agentknit-deepseek-v4-flash" = "agent_deepseek_v4_flash:main"
+"agentknit-kimi-k3" = "agent_kimi_k3:main"
+"agentknit-kimi-k3-tui" = "agent_kimi_k3_tui:main"
+
+[tool.hatch.build.targets.wheel]
+# The face files use dashes (agent-glm-5.3.py); Python modules need
+# underscores. The underscore copies are build artifacts — regenerate them
+# with ./build-modules.sh before building the wheel (CI does).
+only-include = [
+    "agent_glm_5_3.py",
+    "agent_glm_5_3_tui.py",
+    "agent_glm_4_5_air.py",
+    "agent_deepseek_v4_flash.py",
+    "agent_kimi_k3.py",
+    "agent_kimi_k3_tui.py",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Same pinned selection as agentknit, so the checked rules do not change
+# underneath us.
+select = ["E4", "E7", "E9", "F"]
+# E402: the local-only faces deliberately set env vars / sys.path before
+# importing agentknit.
+ignore = ["E402"]

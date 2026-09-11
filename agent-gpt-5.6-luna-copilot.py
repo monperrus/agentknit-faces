@@ -2,10 +2,10 @@
 """Run agentknit against GitHub Copilot GPT-5.6 Luna via subprocess.
 
 Usage:
-    agent-gpt-5.6-luna-copilot.py "<task>"           # one-shot
-    agent-gpt-5.6-luna-copilot.py                    # interactive REPL
-    agent-gpt-5.6-luna-copilot.py --session <id>     # explicit session override
-    agent-gpt-5.6-luna-copilot.py --non-interactive  # disable ask_user_question tool
+    agentknit-gpt-5.6-luna-copilot "<task>"           # one-shot
+    agentknit-gpt-5.6-luna-copilot                    # interactive REPL
+    agentknit-gpt-5.6-luna-copilot --session <id>     # explicit session override
+    agentknit-gpt-5.6-luna-copilot --non-interactive  # disable ask_user_question tool
 
 GPT-5.6 Luna caches only eligible prefixes of at least 1,024 tokens. Strict
 cache-hit enforcement is therefore disabled for this wrapper; cache accounting
@@ -15,16 +15,15 @@ is still recorded whenever Copilot serves a cached prefix.
 import os
 import sys
 
-COMPLETIONS_SCRIPT = os.path.join(
-    os.path.dirname(os.path.realpath(__file__)),
-    "copilot-gpt-5.6-luna.py",
-)
+# The subprocess completion script lives outside this package (~/bin); it is
+# not distributed on PyPI.
+COMPLETIONS_SCRIPT = os.path.expanduser("~/bin/copilot-gpt-5.6-luna.py")
 MODEL = f"run://{COMPLETIONS_SCRIPT}"
 # Max prompt tokens measured by llmprobe (reports/gpt-5.6-luna).
 CONTEXT_WINDOW = 922000
 
-project_root = os.path.dirname(os.path.realpath(__file__))
-sys.path.insert(0, project_root)
+# Resume hints must re-invoke this launcher, not the generic agentknit CLI.
+os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
 
 import agentknit
 

@@ -6,11 +6,11 @@ from the system keyring (service ``login2``, username ``deepseek_api_key``),
 never from a source-controlled environment variable.
 
 Usage:
-    agent-deepseek-v4-flash "<task>"           # one-shot
-    agent-deepseek-v4-flash                    # interactive REPL
-    agent-deepseek-v4-flash --session <id>     # resume a previous session
-    agent-deepseek-v4-flash --non-interactive  # disable ask_user_question
-    echo "<task>" | agent-deepseek-v4-flash    # task on stdin
+    agentknit-deepseek-v4-flash "<task>"           # one-shot
+    agentknit-deepseek-v4-flash                    # interactive REPL
+    agentknit-deepseek-v4-flash --session <id>     # resume a previous session
+    agentknit-deepseek-v4-flash --non-interactive  # disable ask_user_question
+    echo "<task>" | agentknit-deepseek-v4-flash    # task on stdin
 """
 
 from __future__ import annotations
@@ -18,30 +18,11 @@ from __future__ import annotations
 import os
 import sys
 
-MODEL = "deepseek-v4-flash"
-ENDPOINT = "https://api.deepseek.com/v1"
-
-project_root = os.path.dirname(os.path.realpath(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
 import agentknit
-
-schema = agentknit.load_specification(MODEL, ENDPOINT)
-# load_specification() may return a cached probe whose "endpoint" is stale
-# (e.g. the Azure deployment probed earlier); pin it to the official API.
-schema["endpoint"] = ENDPOINT
-schema["keyring_service"] = "login2"
-schema["keyring_username"] = "deepseek_api_key"
-schema["display_name"] = "DeepSeek V4 Flash (official API)"
-# Context window measured by llmprobe (reports/deepseek-v4-flash).
-schema["context_window"] = 1048576
-
-# Async shell tools ("nohup" / "nohup_query"): definitions and implementations
-# live in agentknit.async_toolkit; one call wires specs + dispatch.
 from agentknit.async_toolkit import enable_nohup
 
-enable_nohup(schema)
+MODEL = "deepseek-v4-flash"
+ENDPOINT = "https://api.deepseek.com/v1"
 
 _home = os.path.expanduser("~")
 _cwd = os.getcwd()
@@ -57,6 +38,24 @@ _SUPPLEMENT = (
 
 def main() -> None:
     """Dispatch a one-shot task, stdin task, or interactive agent REPL."""
+    # Resume hints must re-invoke this launcher, not the generic agentknit CLI.
+    os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
+
+    schema = agentknit.load_specification(MODEL, ENDPOINT)
+    # load_specification() may return a cached probe whose "endpoint" is stale
+    # (e.g. the Azure deployment probed earlier); pin it to the official API.
+    schema["endpoint"] = ENDPOINT
+    schema["keyring_service"] = "login2"
+    schema["keyring_username"] = "deepseek_api_key"
+    schema["display_name"] = "DeepSeek V4 Flash (official API)"
+    # Context window measured by llmprobe (reports/deepseek-v4-flash).
+    schema["context_window"] = 1048576
+
+    # Async shell tools ("nohup" / "nohup_query"): definitions and
+    # implementations live in agentknit.async_toolkit; one call wires specs +
+    # dispatch.
+    enable_nohup(schema)
+
     non_interactive = "--non-interactive" in sys.argv
     session_id = None
     if "--session" in sys.argv:

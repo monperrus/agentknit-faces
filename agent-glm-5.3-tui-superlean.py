@@ -64,9 +64,6 @@ PROFILE_NAME = os.environ.get("SUPERLEAN_PROFILE", "zai")
 KEYRING_SERVICE = "login2"
 KEYRING_USERNAME = "SUPERLEAN_API_KEY_ZAI"
 
-project_root = os.path.dirname(os.path.realpath(__file__))
-sys.path.insert(0, project_root)
-
 
 def _keyring_password(service: str, username: str) -> str:
     import keyring
@@ -88,7 +85,7 @@ def _gateway_token() -> str:
 
 
 # Resume hints must point here, not at the generic agentknit CLI.
-os.environ["AGENTKNIT_RESUME_COMMAND"] = os.path.realpath(__file__)
+os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
 
 import agentknit
 from agentknit import validate_schema

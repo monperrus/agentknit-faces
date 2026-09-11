@@ -6,23 +6,18 @@ but rendered with agentknit-tui: persistent conversation pane, multiline
 prompt, inline tool calls, live status bar.
 
 Usage:
-    agent-glm-5.3-tui "<task>"           # start TUI with task prefilled
-    agent-glm-5.3-tui                     # interactive TUI
-    agent-glm-5.3-tui --session <id>      # resume a previous trajectory
-    agent-glm-5.3-tui --non-interactive   # drop ask_user* tools
+    agentknit-glm-5.3-tui "<task>"           # start TUI with task prefilled
+    agentknit-glm-5.3-tui                    # interactive TUI
+    agentknit-glm-5.3-tui --session <id>     # resume a previous trajectory
+    agentknit-glm-5.3-tui --non-interactive  # drop ask_user* tools
 """
 
 import os
 import sys
 
-project_root = os.path.dirname(os.path.realpath(__file__))
-sys.path.insert(0, project_root)
-
-# Resume hints must point here, not at the generic agentknit CLI.
-os.environ["AGENTKNIT_RESUME_COMMAND"] = os.path.realpath(__file__)
-
 import agentknit
 from agentknit import validate_schema
+from agentknit.async_toolkit import enable_nohup
 from agentknit.exceptions import (
     AgentSpecDisabledError,
     AgentSpecInvalidError,
@@ -34,19 +29,6 @@ from agentknit_tui import AgentTUI
 
 MODEL    = "glm-5.3"
 ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
-
-schema = agentknit.load_specification(MODEL, ENDPOINT)
-schema["keyring_service"]  = "z.ai"
-schema["keyring_username"] = "api_key"
-schema["display_name"]     = f"agent-glm-5.3-tui ({MODEL})"
-# Context window measured by llmprobe (reports/glm-5.3).
-schema["context_window"]   = 1048576
-
-# Async shell tools ("nohup" / "nohup_query"): definitions and implementations
-# live in agentknit.async_toolkit; one call wires specs + dispatch.
-from agentknit.async_toolkit import enable_nohup
-
-enable_nohup(schema)
 
 _home = os.path.expanduser("~")
 _cwd  = os.getcwd()
@@ -61,6 +43,21 @@ _SUPPLEMENT = (
 
 
 def main() -> int:
+    # Resume hints must point here, not at the generic agentknit CLI.
+    os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
+
+    schema = agentknit.load_specification(MODEL, ENDPOINT)
+    schema["keyring_service"]  = "z.ai"
+    schema["keyring_username"] = "api_key"
+    schema["display_name"]     = f"agentknit-glm-5.3-tui ({MODEL})"
+    # Context window measured by llmprobe (reports/glm-5.3).
+    schema["context_window"]   = 1048576
+
+    # Async shell tools ("nohup" / "nohup_query"): definitions and
+    # implementations live in agentknit.async_toolkit; one call wires specs +
+    # dispatch.
+    enable_nohup(schema)
+
     _non_interactive = "--non-interactive" in sys.argv
     _session_id = None
     if "--session" in sys.argv:
