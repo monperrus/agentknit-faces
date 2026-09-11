@@ -11,20 +11,29 @@ superleanai gateway's ``kimi`` profile:
 Two gateway modes, selected by ``--local``:
 
 * production (default) -- https://api.superleanai.com, which logs every
-  request to the production Postgres database. The JWT is signed with the
-  production JWT_SECRET (keyring ``login2``/``SUPERLEAN_JWT_SECRET``, env
-  var ``SUPERLEAN_JWT_SECRET`` or ``JWT_SECRET`` as fallbacks), matching
-  agent-glm-5.3-tui-superlean.py.
+  request to the production Postgres database. Auth is a long-lived v2
+  EdDSA JWT bound to an ``api_keys`` row created on
+  https://dashboard.superleanai.com/keys (the Kimi Coding Plan credential
+  is stored encrypted server-side under that row). The token lives in the
+  system keyring (service ``login2``, username ``SUPERLEAN_API_KEY``; env
+  var of the same name takes precedence). If you revoke/rotate the key on
+  the dashboard, mint a replacement JWT server-side over the same jti and
+  update the keyring entry.
 * local (``--local``) -- spins up ``go run ./cmd/proxy`` from the local
   superleanai checkout on a free loopback port; traffic is only logged
-  locally (if SUPERLEANAI_DATABASE_URL is set).
+  locally (if SUPERLEANAI_DATABASE_URL is set). Auth is a short-lived
+  HS256 JWT minted locally (same as ``cmd/createjwt --byok``): its
+  ``openrouter_key`` claim carries the real Kimi Coding Plan API key read
+  from the system keyring (service ``login2``, username ``kimi_api_key``),
+  which the gateway swaps into the upstream ``Authorization`` header.
 
-The TUI authenticates to the gateway with a short-lived HS256 JWT minted
-locally (same as ``cmd/createjwt --byok``): the JWT's ``openrouter_key``
-claim carries the real Kimi Coding Plan API key, which the gateway swaps
-into the upstream ``Authorization`` header.  The Kimi key is read from
-the system keyring (service ``login2``, username ``kimi_api_key``);
-neither key is ever placed in this script or on a command line.
+Note: the production gateway no longer accepts those self-minted HS256
+BYOK tokens -- it requires v2 EdDSA JWTs (``internal/auth``), which only
+the dashboard signer (holder of the production Ed25519 private key) can
+issue. That is why auth against production goes through a dashboard-bound
+token while ``--local`` keeps minting BYOK tokens.
+
+Neither key is ever placed in this script or on a command line.
 
 Usage:
     agent-kimi-k3-tui-superlean.py "<task>"           # open TUI with task prefilled
@@ -67,16 +76,13 @@ def _keyring_password(username: str, required: bool = True) -> str:
     return value or ""
 
 
-def _jwt_secret(local: bool) -> str:
-    if local:
-        return os.environ.get("JWT_SECRET") or _keyring_password("JWT_SECRET")
-    # Production gateway signs with the secret from the prod .env.
-    return (
-        os.environ.get("SUPERLEAN_JWT_SECRET")
-        or _keyring_password("SUPERLEAN_JWT_SECRET", required=False)
-        or os.environ.get("JWT_SECRET")
-        or _keyring_password("JWT_SECRET")
-    )
+def _jwt_secret() -> str:
+    return os.environ.get("JWT_SECRET") or _keyring_password("JWT_SECRET")
+
+
+def _api_token() -> str:
+    """Dashboard-issued v2 JWT for the production gateway (see module docstring)."""
+    return os.environ.get("SUPERLEAN_API_KEY") or _keyring_password("SUPERLEAN_API_KEY")
 
 
 def _mint_proxy_jwt(kimi_api_key: str, secret: str) -> str:
@@ -268,9 +274,10 @@ def main() -> int:
 
     try:
         _patch_accept_encoding()
-        token = _mint_proxy_jwt(
-            _keyring_password(KEYRING_KIMI_KEY), _jwt_secret(local)
-        )
+        if local:
+            token = _mint_proxy_jwt(_keyring_password(KEYRING_KIMI_KEY), _jwt_secret())
+        else:
+            token = _api_token()
         if local:
             _proc, port = _start_local_proxy()
             gateway_base = f"http://127.0.0.1:{port}"
@@ -312,6 +319,12 @@ def main() -> int:
         session_id=session_id,
         system_prompt_supplement=_SUPPLEMENT,
         prefill=task,
+        # Kimi's Coding Plan only reports cache accounting once the prompt
+        # crosses its minimum cacheable prefix (observed: fields appear from
+        # ~3k prompt tokens; the exact floor is not published, 1024 is a
+        # conservative estimate).  Below that floor the first call exposes no
+        # cache fields, which strict cache-proof mode would misread as broken.
+        min_cacheable_tokens=1024,
     )
     app.run()
     return 0
