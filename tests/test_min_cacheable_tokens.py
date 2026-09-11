@@ -68,6 +68,11 @@ def test_face_puts_the_floor_in_the_schema(filename, monkeypatch):
         return SimpleNamespace(run=lambda: None)
 
     module = load_face(filename)
+    # Faces that need credentials (the superlean gateway JWT lives in the
+    # system keyring) must not be able to reach for them in CI: feed a
+    # throwaway token instead.
+    if hasattr(module, "_gateway_token"):
+        monkeypatch.setattr(module, "_gateway_token", lambda: "test-gateway-token")
     monkeypatch.setattr(module.agentknit, "check_and_display_pricing", lambda *a, **k: None)
     monkeypatch.setattr(module, "validate_schema", lambda *a, **k: None, raising=False)
     monkeypatch.setattr(module.agentknit, "run_task", capture)
