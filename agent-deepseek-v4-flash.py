@@ -34,6 +34,8 @@ schema["endpoint"] = ENDPOINT
 schema["keyring_service"] = "login2"
 schema["keyring_username"] = "deepseek_api_key"
 schema["display_name"] = "DeepSeek V4 Flash (official API)"
+# Context window measured by llmprobe (reports/deepseek-v4-flash).
+schema["context_window"] = 1048576
 
 # Async shell tools ("nohup" / "nohup_query"): definitions and implementations
 # live in agentknit.async_toolkit; one call wires specs + dispatch.

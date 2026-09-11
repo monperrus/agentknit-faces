@@ -17,6 +17,9 @@ import importlib.util
 import os
 
 MODEL = "run:///home/martin/bin/claude-haiku-completions.py"
+# Claude Haiku's context window (llmprobe has no report for this wrapper;
+# 200k is Anthropic's standard Haiku context size).
+CONTEXT_WINDOW = 200000
 os.environ["AGENTKNIT_RESUME_COMMAND"] = os.path.realpath(__file__)
 
 _spec = importlib.util.spec_from_file_location(
@@ -28,4 +31,4 @@ _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
 
 if __name__ == "__main__":
-    _mod.main(MODEL)
+    _mod.main(MODEL, CONTEXT_WINDOW)

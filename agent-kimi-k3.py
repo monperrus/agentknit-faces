@@ -34,6 +34,8 @@ schema = agentknit.load_specification(MODEL, ENDPOINT)
 schema["keyring_service"] = "login2"
 schema["keyring_username"] = "kimi_api_key"
 schema["display_name"] = "Kimi K3 (Kimi Coding Plan)"
+# Context window measured by llmprobe (reports/k3).
+schema["context_window"] = 1048576
 
 _home = os.path.expanduser("~")
 _cwd = os.getcwd()
@@ -95,6 +97,12 @@ def main() -> None:
         session_id=session_id,
         system_prompt_supplement=_SUPPLEMENT,
         client=_create_k3_client(),
+        # Kimi's Coding Plan only reports cache accounting once the prompt
+        # crosses its minimum cacheable prefix (observed: fields appear from
+        # ~3k prompt tokens; the exact floor is not published, 1024 is a
+        # conservative estimate).  Below that floor the first call exposes no
+        # cache fields, which strict cache-proof mode would misread as broken.
+        min_cacheable_tokens=1024,
     )
     if task:
         agentknit.run_task(schema, task, **common)

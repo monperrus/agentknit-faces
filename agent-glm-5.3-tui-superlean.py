@@ -128,6 +128,8 @@ def _build_schema(token: str) -> dict:
     schema["key_env"] = "SUPERLEAN_PROXY_TOKEN"
     os.environ["SUPERLEAN_PROXY_TOKEN"] = token
     schema["display_name"] = f"agent-glm-5.3-tui-superlean ({MODEL})"
+    # Context window measured by llmprobe (reports/glm-5.3).
+    schema["context_window"] = 1048576
     enable_nohup(schema)
     return schema
 

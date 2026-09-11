@@ -5,8 +5,8 @@ Callers must set os.environ["AGENTKNIT_RESUME_COMMAND"] to their own path
 before importing this module, then call main(model).
 
 Usage (direct):
-    agent-deepseek-v4-flash-async --model <model-url> "<task>"
-    agent-deepseek-v4-flash-async --model <model-url>       # REPL
+    agent-deepseek-v4-flash-async --model <model-url> [--context-window N] "<task>"
+    agent-deepseek-v4-flash-async --model <model-url> [--context-window N]   # REPL
 """
 
 from __future__ import annotations
@@ -149,8 +149,8 @@ _SYSTEM_SUPPLEMENT = (
 )
 
 
-def _build_schema(model: str, endpoint: str) -> dict:
-    return {
+def _build_schema(model: str, endpoint: str, context_window: int | None = None) -> dict:
+    schema = {
         "model": model,
         "endpoint": endpoint,
         "status": "default",
@@ -158,6 +158,9 @@ def _build_schema(model: str, endpoint: str) -> dict:
         "behaviour": {"call_delivery_mode": "structured_tool_calls"},
         "tool_dispatch": _TOOL_DISPATCH,
     }
+    if context_window is not None:
+        schema["context_window"] = context_window
+    return schema
 
 
 def _completion_message(event: dict) -> str:
@@ -382,7 +385,7 @@ def _run_task_async(
         _save_messages_snapshot(session)
 
 
-def main(model: str) -> None:
+def main(model: str, context_window: int | None = None) -> None:
     import argparse
 
     p = argparse.ArgumentParser(description="Async coding agent.")
@@ -396,7 +399,7 @@ def main(model: str) -> None:
     )
     args = p.parse_args()
 
-    schema = _build_schema(model, args.endpoint)
+    schema = _build_schema(model, args.endpoint, context_window)
     opts = dict(
         session_id=args.session,
         system_prompt_supplement=_SYSTEM_SUPPLEMENT,
@@ -413,7 +416,8 @@ if __name__ == "__main__":
 
     _p = _ap.ArgumentParser(add_help=False)
     _p.add_argument("--model", required=True)
+    _p.add_argument("--context-window", type=int, default=None)
     _known, _rest = _p.parse_known_args()
     os.environ.setdefault("AGENTKNIT_RESUME_COMMAND", os.path.realpath(__file__))
     sys.argv = [sys.argv[0]] + _rest
-    main(_known.model)
+    main(_known.model, _known.context_window)

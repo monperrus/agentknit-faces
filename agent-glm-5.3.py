@@ -26,6 +26,8 @@ ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
 schema = agentknit.load_specification(MODEL, ENDPOINT)
 schema["keyring_service"]  = "z.ai"
 schema["keyring_username"] = "api_key"
+# Context window measured by llmprobe (reports/glm-5.3).
+schema["context_window"] = 1048576
 
 # Async shell tools ("nohup" / "nohup_query"): definitions and implementations
 # live in agentknit.async_toolkit; one call wires specs + dispatch.

@@ -26,6 +26,9 @@ ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
 schema = agentknit.load_specification(MODEL, ENDPOINT)
 schema["keyring_service"]  = "z.ai"
 schema["keyring_username"] = "api_key"
+# z.ai publishes no context-window figure for glm-4.5-air; llmprobe found
+# none either. GLM-4.5-Air ships with 131072 tokens.
+schema["context_window"] = 131072
 
 # Async shell tools ("nohup" / "nohup_query"): definitions and implementations
 # live in agentknit.async_toolkit; one call wires specs + dispatch.

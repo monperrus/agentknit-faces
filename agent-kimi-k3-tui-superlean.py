@@ -228,6 +228,8 @@ def _build_schema(gateway_base: str, token: str) -> dict:
     schema["key_env"] = "SUPERLEAN_PROXY_TOKEN"
     os.environ["SUPERLEAN_PROXY_TOKEN"] = token
     schema["display_name"] = "Kimi K3 via superleanai"
+    # Context window measured by llmprobe (reports/k3).
+    schema["context_window"] = 1048576
     return schema
 
 
