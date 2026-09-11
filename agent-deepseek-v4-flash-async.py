@@ -68,7 +68,7 @@ def _t_execute_async_tracking(command: str, when: int = 0) -> tuple[str, dict]:
 
 _TOOLS = [
     Tool(
-        "execute_shell_command",
+        "exec_shell",
         f"Start a shell command asynchronously. Returns tool_exec_id, cwd "
         f"(working directory), and local file paths for stdin (FIFO), stdout, "
         f"and stderr. Write to stdin_localfile to send input to the running "
@@ -144,7 +144,7 @@ _TOOL_SCHEMA, _TOOL_DISPATCH = build_tool_spec(_TOOLS)
 register_tools_in_library(_TOOLS)
 
 _SYSTEM_SUPPLEMENT = (
-    "You are a fully asynchronous coding agent. Think asynchronously. Start shell commands with execute_shell_command — "
+    "You are a fully asynchronous coding agent. Think asynchronously. Start shell commands with exec_shell — "
     "they run in the background.."
 )
 
@@ -354,7 +354,7 @@ def _run_task_async(
         **schema,
         "tool_dispatch": {
             **schema["tool_dispatch"],
-            "execute_shell_command": {"python_function": _LIB_KEY, "param_map": {}},
+            "exec_shell": {"python_function": _LIB_KEY, "param_map": {}},
         },
     }
 
