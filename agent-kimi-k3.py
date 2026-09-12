@@ -67,6 +67,10 @@ def main() -> None:
     schema["display_name"] = "Kimi K3 (Kimi Coding Plan)"
     # Context window measured by llmprobe (reports/k3).
     schema["context_window"] = 1048576
+    # The compaction trigger must sit well below the window: the last
+    # observed prompt (trigger) + one more assistant reply + one tool result
+    # must still fit.  75 % leaves ~260k of headroom for the last turn.
+    schema["compaction_trigger_tokens"] = 786432
 
     non_interactive = "--non-interactive" in sys.argv
     session_id = None

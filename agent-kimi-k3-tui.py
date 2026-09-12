@@ -67,6 +67,9 @@ def main() -> int:
     schema["display_name"] = "Kimi K3 (Kimi Coding Plan)"
     # Context window measured by llmprobe (reports/k3).
     schema["context_window"] = 1048576
+    # Trigger compaction at 75 % of the window: the last observed prompt plus
+    # one more assistant reply + tool result must still fit.
+    schema["compaction_trigger_tokens"] = 786432
 
     non_interactive = "--non-interactive" in sys.argv
     session_id = None
