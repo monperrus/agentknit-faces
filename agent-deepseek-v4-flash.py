@@ -50,6 +50,14 @@ def main() -> None:
     schema["display_name"] = "DeepSeek V4 Flash (official API)"
     # Context window measured by llmprobe (reports/deepseek-v4-flash).
     schema["context_window"] = 1048576
+    # deepseek-v4-flash streams its reasoning trace as `reasoning_content`
+    # SSE deltas whenever it actually reasons: trivially-easy prompts get 0
+    # reasoning tokens (and report `reasoning_tokens: 0`), real ones stream
+    # the trace before content (measured against api.deepseek.com on
+    # 2026-09-12).  agentknit only enables streaming — and with it the
+    # reasoning_delta events the TUI renders as dim italic text — when the
+    # spec declares the capability; the default in-memory spec does not.
+    schema["provider_api_support"] = {"streaming": {"supported": True}}
 
     # Async shell tools ("nohup" / "nohup_query"): definitions and
     # implementations live in agentknit.async_toolkit; one call wires specs +
