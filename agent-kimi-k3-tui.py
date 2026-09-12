@@ -70,6 +70,12 @@ def main() -> int:
     # Trigger compaction at 75 % of the window: the last observed prompt plus
     # one more assistant reply + tool result must still fit.
     schema["compaction_trigger_tokens"] = 786432
+    # k3 streams its reasoning trace as `reasoning_content` SSE deltas (every
+    # call carries it — measured against api.kimi.com on 2026-09-12, 6/6).
+    # agentknit only enables streaming — and with it the reasoning_delta
+    # events the TUI renders as dim italic text — when the spec declares the
+    # capability; the default in-memory spec does not.
+    schema["provider_api_support"] = {"streaming": {"supported": True}}
 
     non_interactive = "--non-interactive" in sys.argv
     session_id = None
