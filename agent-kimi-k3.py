@@ -101,10 +101,10 @@ def main() -> None:
         client=_create_k3_client(schema),
         # Kimi's Coding Plan only reports cache accounting once the prompt
         # crosses its minimum cacheable prefix (observed: fields appear from
-        # ~3k prompt tokens; the exact floor is not published, 1024 is a
+        # ~3k prompt tokens; the exact floor is not published, 4096 is a
         # conservative estimate).  Below that floor the first call exposes no
         # cache fields, which strict cache-proof mode would misread as broken.
-        min_cacheable_tokens=1024,
+        min_cacheable_tokens=4096,
     )
     if task:
         agentknit.run_task(schema, task, **common)
