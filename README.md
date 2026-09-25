@@ -74,6 +74,7 @@ wheel and are symlinked into `~/bin` locally:
 | `agent-glm-5.3-tui-superlean.py` | glm-5.3 TUI routed through the superleanai production middleware |
 | `agent-kimi-k3-tui-superlean.py` | Kimi K3 TUI routed through the superleanai middleware |
 | `agent-gpt-5.6-luna-copilot.py` | GitHub Copilot GPT-5.6 Luna (needs `~/bin/copilot-gpt-5.6-luna.py`) |
+| `agent-deepseek-flash.py` / `agent-deepseek-flash-tui.py` | DeepSeek Flash via the official DeepSeek API (`api.deepseek.com`); REPL and Textual TUI |
 | `agent-deepseek-v4-flash-zen.py` / `-zen-sync.py` / `-zen-async.py` | DeepSeek V4 Flash (free) via the Zen backend |
 | `agent-deepseek-v4-flash-async.py` | Abstract async agent loop, parametrised by model |
 | `agent-claude-haiku-async.py` | Claude Haiku (via claude.ai OAuth), agent-workflow wrapped |
