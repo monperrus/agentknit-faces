@@ -25,6 +25,7 @@ uvx --from "agentknit-faces[tui]" agentknit-glm-5.3-tui
 |---|---|
 | `agentknit-glm-5.3` | glm-5.3 via api.z.ai |
 | `agentknit-glm-5.3-tui` | glm-5.3 via api.z.ai, Textual TUI |
+| `agentknit-glm-5.3-flash-tui` | glm-5.3-flash via api.z.ai, Textual TUI |
 | `agentknit-glm-4.5-air` | glm-4.5-air via api.z.ai |
 | `agentknit-deepseek-v4-flash` | DeepSeek V4 Flash via the official DeepSeek API (`api.deepseek.com`) |
 | `agentknit-kimi-k3` | Kimi K3 via the official Kimi Coding Plan API |

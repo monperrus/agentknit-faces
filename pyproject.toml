@@ -39,6 +39,7 @@ Issues = "https://github.com/monperrus/agentknit-faces/issues"
 [project.scripts]
 "agentknit-glm-5.3" = "agent_glm_5_3:entry"
 "agentknit-glm-5.3-tui" = "agent_glm_5_3_tui:main"
+"agentknit-glm-5.3-flash-tui" = "agent_glm_5_3_flash_tui:main"
 "agentknit-glm-4.5-air" = "agent_glm_4_5_air:entry"
 "agentknit-deepseek-v4-flash" = "agent_deepseek_v4_flash:main"
 "agentknit-kimi-k3" = "agent_kimi_k3:main"
@@ -51,6 +52,7 @@ Issues = "https://github.com/monperrus/agentknit-faces/issues"
 only-include = [
     "agent_glm_5_3.py",
     "agent_glm_5_3_tui.py",
+    "agent_glm_5_3_flash_tui.py",
     "agent_glm_4_5_air.py",
     "agent_deepseek_v4_flash.py",
     "agent_kimi_k3.py",

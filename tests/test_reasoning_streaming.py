@@ -27,6 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 STREAMING_FACES = (
     "agent-glm-5.3.py",
     "agent-glm-5.3-tui.py",
+    "agent-glm-5.3-flash-tui.py",
 )
 
 
