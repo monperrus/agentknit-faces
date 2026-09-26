@@ -57,6 +57,15 @@ def entry() -> None:
     schema["context_window"] = 1048576
     # z.ai's minimum cacheable prompt prefix (see MIN_CACHEABLE_TOKENS).
     schema["min_cacheable_tokens"] = MIN_CACHEABLE_TOKENS
+    # glm-5.3 streams its reasoning trace as `reasoning_content` SSE deltas.
+    # agentknit only enables streaming — and with it the `reasoning_delta`
+    # events the REPL renders as dim italic text — when the spec declares the
+    # capability; the default in-memory spec does not.  Measured against
+    # api.z.ai on 2026-09-12: ~90% of calls carry the trace; the rest are
+    # routed to a backend variant that emits none (no request parameter —
+    # `thinking`, `enable_thinking`, `reasoning_effort` — forces it), so a
+    # missing trace on a given turn is server-side, not a client bug.
+    schema["provider_api_support"] = {"streaming": {"supported": True}}
 
     # Async shell tools ("nohup" / "nohup_query"): definitions and
     # implementations live in agentknit.async_toolkit; one call wires specs +

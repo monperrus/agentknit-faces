@@ -55,6 +55,11 @@ def main() -> int:
     os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
 
     schema = agentknit.load_specification(MODEL, ENDPOINT)
+    # load_specification() may return a cached probe whose "endpoint" is stale;
+    # pin it to the official API, exactly as agent-deepseek-flash-tui.py does,
+    # so streaming (and with it the reasoning trace) always goes to the
+    # endpoint this face documents.
+    schema["endpoint"] = ENDPOINT
     schema["keyring_service"]  = "z.ai"
     schema["keyring_username"] = "api_key"
     schema["display_name"]     = f"agentknit-glm-5.3-tui ({MODEL})"
