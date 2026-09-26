@@ -120,13 +120,18 @@ def main() -> int:
         print(f"Rate limited: {exc}", file=sys.stderr)
         return 2
 
-    app = AgentTUI(
-        schema,
-        non_interactive=_non_interactive,
-        session_id=_session_id,
-        system_prompt_supplement=_SUPPLEMENT,
-        prefill=_task or "",
-    )
+    try:
+        app = AgentTUI(
+            schema,
+            non_interactive=_non_interactive,
+            session_id=_session_id,
+            system_prompt_supplement=_SUPPLEMENT,
+            prefill=_task or "",
+        )
+    except AuthenticationError as exc:
+        print(f"Authentication error: {exc}", file=sys.stderr)
+        return 2
+
     app.run()
     return 0
 
