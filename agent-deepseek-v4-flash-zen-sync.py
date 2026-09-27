@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Wrapper — runs agentknit against DeepSeek V4 Flash (free) via the Zen
-endpoint (opencode.ai/zen) using a local subprocess script.
+"""Wrapper — runs agentknit against DeepSeek V4 Flash via the official
+DeepSeek API (api.deepseek.com) using a local subprocess script.
 
 Uses a stable per-directory session ID so each run from the same working
 directory resumes the same conversation, letting the API reuse its
@@ -16,7 +16,7 @@ Usage:
 import os
 import sys
 
-MODEL = "run:///home/martin/bin/opencode-free-deepseek-v4-flash-completions.py"
+MODEL = "run:///home/martin/bin/deepseek-v4-flash-completions.py"
 os.environ["AGENTKNIT_RESUME_COMMAND"] = os.path.realpath(__file__)
 
 project_root = os.path.dirname(os.path.realpath(__file__))
