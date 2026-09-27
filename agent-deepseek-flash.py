@@ -58,6 +58,12 @@ def main() -> None:
     # reasoning_delta events the TUI renders as dim italic text — when the
     # spec declares the capability; the default in-memory spec does not.
     schema["provider_api_support"] = {"streaming": {"supported": True}}
+    # DeepSeek's Context Caching on Disk keeps entries "a few hours to a few
+    # days" after last use (docs: "automatically cleared, usually within a
+    # few hours to a few days"); 6h is the conservative end.  Declaring it
+    # classifies a resume after that as a cold resume (expected full
+    # re-write) instead of a spurious cache_proof_missing warning.
+    schema["cache_ttl_seconds"] = 21600
 
     # Async shell tools ("nohup" / "nohup_query"): definitions and
     # implementations live in agentknit.async_toolkit; one call wires specs +

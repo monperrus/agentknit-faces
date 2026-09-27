@@ -64,6 +64,12 @@ def main() -> int:
     # reasoning_delta events the TUI renders as dim italic text — when the spec
     # declares the capability; the default in-memory spec does not.
     schema["provider_api_support"] = {"streaming": {"supported": True}}
+    # DeepSeek's disk-backed prefix cache outlives KV caches: entries are
+    # "automatically cleared, usually within a few hours to a few days"
+    # (api-docs.deepseek.com/guides/kv_cache).  6h is the conservative end;
+    # a resume past it is a cold resume (full re-write expected), not a
+    # cache_proof_missing surprise.  Also feeds the TUI warmth countdown.
+    schema["cache_ttl_seconds"] = 21600
 
     # Async shell tools ("nohup" / "nohup_query"): definitions and
     # implementations live in agentknit.async_toolkit; one call wires specs +

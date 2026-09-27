@@ -105,6 +105,13 @@ def main() -> None:
         # conservative estimate).  Below that floor the first call exposes no
         # cache fields, which strict cache-proof mode would misread as broken.
         min_cacheable_tokens=4096,
+        # Kimi's implicit prefix cache carries a 5-minute TTL by default
+        # (documented on the context-caching page; `prompt_cache_options`
+        # can raise it to 1h but is a billing-affecting write control we
+        # don't exercise).  Declaring it makes a resume after >5 min a
+        # "cold resume" (expected full re-write) instead of a spurious
+        # cache_proof_missing warning.
+        cache_ttl_seconds=300,
     )
     if task:
         agentknit.run_task(schema, task, **common)

@@ -70,6 +70,11 @@ def main() -> int:
     # Trigger compaction at 75 % of the window: the last observed prompt plus
     # one more assistant reply + tool result must still fit.
     schema["compaction_trigger_tokens"] = 786432
+    # Kimi's implicit prefix cache carries a 5-minute TTL by default (see
+    # agent-kimi-k3.py).  Declaring it classifies a resume after >5 min as a
+    # cold resume (expected full cache re-write) instead of a spurious
+    # cache_proof_missing warning, and lets the TUI count the warmth down.
+    schema["cache_ttl_seconds"] = 300
     # k3 streams its reasoning trace as `reasoning_content` SSE deltas (every
     # call carries it — measured against api.kimi.com on 2026-09-12, 6/6).
     # agentknit only enables streaming — and with it the reasoning_delta
