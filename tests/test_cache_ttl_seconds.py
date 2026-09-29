@@ -61,6 +61,12 @@ def _capture_schema(monkeypatch: pytest.MonkeyPatch, filename: str) -> dict:
     monkeypatch.setattr(sys, "argv", [filename, "say ok"])
     if hasattr(module, "_gateway_token"):
         monkeypatch.setattr(module, "_gateway_token", lambda: "test-gateway-token")
+    # The Kimi faces build their client eagerly, which resolves the API key
+    # (keyring, then env): CI has neither, so hand them a stub client.
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda *a, **k: None))
+    )
+    monkeypatch.setattr(module.agentknit, "create_client", lambda *a, **k: fake_client)
     monkeypatch.setattr(module.agentknit, "check_and_display_pricing", lambda *a, **k: None)
     monkeypatch.setattr(module, "validate_schema", lambda *a, **k: None, raising=False)
     monkeypatch.setattr(module.agentknit, "run_task", capture)
