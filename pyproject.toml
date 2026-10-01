@@ -24,7 +24,8 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "agentknit>=0.2.0,<1",
+    # 0.1015.0: load_specification(..., inference_db=...)
+    "agentknit>=0.1015.0,<1",
     "keyring>=25",
 ]
 
