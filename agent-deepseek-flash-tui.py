@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Textual TUI for DeepSeek Flash through the official DeepSeek API.
 
-Same schema as agent-deepseek-flash.py (endpoint https://api.deepseek.com,
-keyring ``login2``/``deepseek_api_key``) but rendered with agentknit-tui:
+Same schema as agent-deepseek-flash.py (inference-db entry ``deepseek``)
+but rendered with agentknit-tui:
 persistent conversation pane, multiline prompt, inline tool calls, live
 status bar.
 
@@ -31,7 +31,7 @@ from agentknit.exceptions import (
 from agentknit_tui import AgentTUI
 
 MODEL = "deepseek-flash"
-ENDPOINT = "https://api.deepseek.com/v1"
+INFERENCE_DB = "deepseek"
 
 _home = os.path.expanduser("~")
 _cwd = os.getcwd()
@@ -49,12 +49,9 @@ def main() -> int:
     # Resume hints must re-invoke this TUI launcher, not the generic CLI.
     os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
 
-    schema = agentknit.load_specification(MODEL, ENDPOINT)
-    # load_specification() may return a cached probe whose "endpoint" is stale;
-    # pin it to the official API.
-    schema["endpoint"] = ENDPOINT
-    schema["keyring_service"] = "login2"
-    schema["keyring_username"] = "deepseek_api_key"
+    # The inference-db entry pins the endpoint even when the cached probe
+    # spec carries a stale one.
+    schema = agentknit.load_specification(MODEL, inference_db=INFERENCE_DB)
     schema["display_name"] = "DeepSeek Flash (official API, TUI)"
     # Context window measured by llmprobe (reports/deepseek-flash).
     schema["context_window"] = 1048576

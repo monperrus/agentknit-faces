@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run agentknit with Kimi K3 through the official Kimi Coding Plan API.
 
-The Coding Plan is distinct from Kimi's pay-as-you-go Open Platform.  Its
-credential is read from the system keyring (service ``login2``, username
-``kimi_api_key``), never from a source-controlled environment variable.
+The Coding Plan is distinct from Kimi's pay-as-you-go Open Platform.
+Endpoint, key source and K3's quirks (it only accepts ``temperature=1``) come
+from the inference-db entry ``kimi-coding``.
 
 Usage:
     agentknit-kimi-k3 "<task>"           # one-shot
@@ -20,7 +20,7 @@ import agentknit
 
 
 MODEL = "k3"
-ENDPOINT = "https://api.kimi.com/coding/v1"
+INFERENCE_DB = "kimi-coding"
 
 _home = os.path.expanduser("~")
 _cwd = os.getcwd()
@@ -34,36 +34,12 @@ _SUPPLEMENT = (
 )
 
 
-def _create_k3_client(schema):
-    """Return a client that meets K3's fixed-temperature API requirement.
-
-    K3's Coding Plan endpoint currently accepts only ``temperature=1``, while
-    agentknit's generic agent loop intentionally sends ``temperature=0``.
-    Keep that provider adaptation local to this launcher rather than changing
-    the generic loop for every other provider.
-    """
-    client = agentknit.create_client(schema)
-    create = client.chat.completions.create
-
-    def create_with_k3_temperature(*args, **kwargs):
-        kwargs["temperature"] = 1
-        return create(*args, **kwargs)
-
-    client.chat.completions.create = create_with_k3_temperature
-    return client
-
-
 def main() -> None:
     """Dispatch a one-shot task, stdin task, or interactive agent REPL."""
     # Resume hints must re-invoke this launcher, not the generic agentknit CLI.
     os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
 
-    # Kimi Coding Plan keys are separate from Kimi Open Platform keys.
-    # Agentknit resolves this pair directly with keyring, so no key is put
-    # into the process environment or command line.
-    schema = agentknit.load_specification(MODEL, ENDPOINT)
-    schema["keyring_service"] = "login2"
-    schema["keyring_username"] = "kimi_api_key"
+    schema = agentknit.load_specification(MODEL, inference_db=INFERENCE_DB)
     schema["display_name"] = "Kimi K3 (Kimi Coding Plan)"
     # Context window measured by llmprobe (reports/k3).
     schema["context_window"] = 1048576
@@ -98,7 +74,6 @@ def main() -> None:
         non_interactive=non_interactive,
         session_id=session_id,
         system_prompt_supplement=_SUPPLEMENT,
-        client=_create_k3_client(schema),
         # Kimi's Coding Plan only reports cache accounting once the prompt
         # crosses its minimum cacheable prefix (observed: fields appear from
         # ~3k prompt tokens; the exact floor is not published, 4096 is a

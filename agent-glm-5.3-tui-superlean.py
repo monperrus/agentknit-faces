@@ -55,11 +55,13 @@ import os
 import sys
 
 MODEL = "glm-5.3"
-UPSTREAM_ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
+# Gateway endpoint from inference-db (upstream: entry zai-coding).
+INFERENCE_DB = "superleanai-zai"
+# SUPERLEAN_ENDPOINT / SUPERLEAN_PROFILE still point the client at another
+# gateway or profile: the profile name is a path segment of the gateway URL,
+# so that is purely a client-side change.
+GATEWAY_OVERRIDE = "SUPERLEAN_ENDPOINT" in os.environ or "SUPERLEAN_PROFILE" in os.environ
 GATEWAY = os.environ.get("SUPERLEAN_ENDPOINT", "https://api.superleanai.com")
-# The gateway profile is part of the client's routing decision, not server
-# config: the profile name is a path segment of the gateway URL, so pointing
-# the client at a different profile is purely a client-side change.
 PROFILE_NAME = os.environ.get("SUPERLEAN_PROFILE", "zai")
 KEYRING_SERVICE = "login2"
 KEYRING_USERNAME = "SUPERLEAN_API_KEY_ZAI"
@@ -123,10 +125,11 @@ _SUPPLEMENT = (
 
 
 def _build_schema(token: str) -> dict:
-    schema = agentknit.load_specification(MODEL, UPSTREAM_ENDPOINT)
-    # Route through the production middleware; auth is the minted JWT,
-    # supplied via env var so it never appears on a command line.
-    schema["endpoint"] = f"{GATEWAY}/{PROFILE_NAME}/v1"
+    schema = agentknit.load_specification(MODEL, inference_db=INFERENCE_DB)
+    if GATEWAY_OVERRIDE:
+        schema["endpoint"] = f"{GATEWAY}/{PROFILE_NAME}/v1"
+    # Auth is the gateway JWT, supplied via env var so it never appears on a
+    # command line; an explicit key_env wins over the entry's key sources.
     schema.pop("keyring_service", None)
     schema.pop("keyring_username", None)
     schema.pop("auth", None)

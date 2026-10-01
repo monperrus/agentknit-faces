@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Textual TUI for Kimi K3 through the official Kimi Coding Plan API.
 
-The API key is read from the system keyring (service ``login2``, username
-``kimi_api_key``); it is never placed in this script, an environment variable,
-or a command-line argument.
+Endpoint, key source and K3's quirks (it only accepts ``temperature=1``) come
+from the inference-db entry ``kimi-coding``.
 
 Usage:
     agentknit-kimi-k3-tui "<task>"           # open TUI with task prefilled
@@ -18,7 +17,7 @@ import sys
 import agentknit
 
 MODEL = "k3"
-ENDPOINT = "https://api.kimi.com/coding/v1"
+INFERENCE_DB = "kimi-coding"
 from agentknit import validate_schema
 from agentknit.exceptions import (
     AgentSpecDisabledError,
@@ -28,7 +27,6 @@ from agentknit.exceptions import (
     RateLimitError,
 )
 from agentknit_tui import AgentTUI
-import agentknit_tui.app as agent_tui_app
 
 
 _home = os.path.expanduser("~")
@@ -43,27 +41,11 @@ _SUPPLEMENT = (
 )
 
 
-def _create_k3_client(schema: dict | None = None):
-    """Create a Coding Plan client with K3's mandatory temperature setting."""
-    client = agentknit.create_client(schema)
-    create = client.chat.completions.create
-
-    def create_with_k3_temperature(*args, **kwargs):
-        # K3's Coding Plan endpoint rejects agentknit's generic temperature=0.
-        kwargs["temperature"] = 1
-        return create(*args, **kwargs)
-
-    client.chat.completions.create = create_with_k3_temperature
-    return client
-
-
 def main() -> int:
     # Ensure generated resume commands return to this TUI launcher.
     os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
 
-    schema = agentknit.load_specification(MODEL, ENDPOINT)
-    schema["keyring_service"] = "login2"
-    schema["keyring_username"] = "kimi_api_key"
+    schema = agentknit.load_specification(MODEL, inference_db=INFERENCE_DB)
     schema["display_name"] = "Kimi K3 (Kimi Coding Plan)"
     # Context window measured by llmprobe (reports/k3).
     schema["context_window"] = 1048576
@@ -123,10 +105,6 @@ def main() -> int:
         print(f"Rate limited: {exc}", file=sys.stderr)
         return 2
 
-    # AgentTUI imports create_client into its app module, so patch that local
-    # binding before construction.  Its turn worker then receives our adapted
-    # client without changing agentknit's generic behaviour for other models.
-    agent_tui_app.create_client = _create_k3_client
     app = AgentTUI(
         schema,
         non_interactive=non_interactive,

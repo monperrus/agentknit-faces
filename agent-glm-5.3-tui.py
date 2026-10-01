@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Textual TUI agent for glm-5.3 via api.z.ai.
 
-Same schema as agent-glm-5.3.py (keyring z.ai/api_key, coding endpoint)
+Same schema as agent-glm-5.3.py (inference-db entry ``zai-coding``)
 but rendered with agentknit-tui: persistent conversation pane, multiline
 prompt, inline tool calls, live status bar.
 
@@ -28,7 +28,7 @@ from agentknit.exceptions import (
 from agentknit_tui import AgentTUI
 
 MODEL    = "glm-5.3"
-ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
+INFERENCE_DB = "zai-coding"
 
 # z.ai caches prompt prefixes in 64-token blocks and reports
 # ``cached_tokens: 0`` for any prompt too short to fill a whole block, so such
@@ -54,14 +54,10 @@ def main() -> int:
     # Resume hints must point here, not at the generic agentknit CLI.
     os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
 
-    schema = agentknit.load_specification(MODEL, ENDPOINT)
-    # load_specification() may return a cached probe whose "endpoint" is stale;
-    # pin it to the official API, exactly as agent-deepseek-flash-tui.py does,
-    # so streaming (and with it the reasoning trace) always goes to the
-    # endpoint this face documents.
-    schema["endpoint"] = ENDPOINT
-    schema["keyring_service"]  = "z.ai"
-    schema["keyring_username"] = "api_key"
+    # The inference-db entry pins the endpoint even when the cached probe
+    # spec carries a stale one, so streaming (and with it the reasoning
+    # trace) always goes to the official API.
+    schema = agentknit.load_specification(MODEL, inference_db=INFERENCE_DB)
     schema["display_name"]     = f"agentknit-glm-5.3-tui ({MODEL})"
     # Context window measured by llmprobe (reports/glm-5.3).
     schema["context_window"]   = 1048576

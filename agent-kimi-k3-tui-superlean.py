@@ -54,7 +54,9 @@ import time
 import urllib.request
 
 MODEL = "k3"
-UPSTREAM_ENDPOINT = "https://api.kimi.com/coding/v1"
+# Production gateway endpoint and K3's temperature=1 quirk come from
+# inference-db (upstream: entry kimi-coding); --local overrides the endpoint.
+INFERENCE_DB = "superleanai-kimi"
 PROFILE_NAME = "kimi"
 PROD_GATEWAY = "https://api.superleanai.com"
 KEYRING_SERVICE = "login2"
@@ -179,7 +181,6 @@ from agentknit.exceptions import (
     RateLimitError,
 )
 from agentknit_tui import AgentTUI
-import agentknit_tui.app as agent_tui_app
 
 
 _home = os.path.expanduser("~")
@@ -218,10 +219,11 @@ def _patch_accept_encoding() -> None:
 
 
 def _build_schema(gateway_base: str, token: str) -> dict:
-    schema = agentknit.load_specification(MODEL, UPSTREAM_ENDPOINT)
-    # Route through the middleware; auth is the minted JWT, supplied
-    # via env var so it never appears on a command line.
-    schema["endpoint"] = f"{gateway_base}/{PROFILE_NAME}/v1"
+    schema = agentknit.load_specification(MODEL, inference_db=INFERENCE_DB)
+    if gateway_base != PROD_GATEWAY:
+        schema["endpoint"] = f"{gateway_base}/{PROFILE_NAME}/v1"
+    # Auth is the minted JWT, supplied via env var so it never appears on a
+    # command line; an explicit key_env wins over the entry's key sources.
     schema.pop("keyring_service", None)
     schema.pop("keyring_username", None)
     schema.pop("auth", None)
@@ -234,23 +236,6 @@ def _build_schema(gateway_base: str, token: str) -> dict:
     # one more assistant reply + tool result must still fit.
     schema["compaction_trigger_tokens"] = 786432
     return schema
-
-
-def _create_k3_client_factory(schema: dict):
-    def _create_k3_client(_schema: dict | None = None):
-        """Create a Coding Plan client with K3's mandatory temperature setting."""
-        client = agentknit.create_client(schema)
-        create = client.chat.completions.create
-
-        def create_with_k3_temperature(*args, **kwargs):
-            # K3's Coding Plan endpoint rejects agentknit's generic temperature=0.
-            kwargs["temperature"] = 1
-            return create(*args, **kwargs)
-
-        client.chat.completions.create = create_with_k3_temperature
-        return client
-
-    return _create_k3_client
 
 
 def main() -> int:
@@ -314,10 +299,6 @@ def main() -> int:
         print(exc, file=sys.stderr)
         return 2
 
-    # AgentTUI imports create_client into its app module, so patch that local
-    # binding before construction.  Its turn worker then receives our adapted
-    # client without changing agentknit's generic behaviour for other models.
-    agent_tui_app.create_client = _create_k3_client_factory(schema)
     app = AgentTUI(
         schema,
         non_interactive=non_interactive,

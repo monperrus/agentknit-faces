@@ -2,7 +2,7 @@
 """Agent wrapper for glm-5.3 via api.z.ai.
 
 glm-5.3 is z.ai's flagship model, on the same coding endpoint as glm-5.2.
-API key retrieved from keyring (service: z.ai, username: api_key).
+Endpoint and key source come from the inference-db entry ``zai-coding``.
 
 Usage:
     agentknit-glm-5.3 "<task>"           # one-shot
@@ -17,7 +17,7 @@ import agentknit
 from agentknit.async_toolkit import enable_nohup
 
 MODEL    = "glm-5.3"
-ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
+INFERENCE_DB = "zai-coding"
 
 # z.ai caches prompt prefixes in 64-token blocks and reports
 # ``cached_tokens: 0`` for any prompt too short to fill a whole block, so such
@@ -48,11 +48,7 @@ def entry() -> None:
     # Resume hints must re-invoke this launcher, not the generic agentknit CLI.
     os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
 
-    # Load spec and inject keyring config so agentknit resolves the API key
-    # via keyring directly, without any shared env-var convention.
-    schema = agentknit.load_specification(MODEL, ENDPOINT)
-    schema["keyring_service"]  = "z.ai"
-    schema["keyring_username"] = "api_key"
+    schema = agentknit.load_specification(MODEL, inference_db=INFERENCE_DB)
     # Context window measured by llmprobe (reports/glm-5.3).
     schema["context_window"] = 1048576
     # z.ai's minimum cacheable prompt prefix (see MIN_CACHEABLE_TOKENS).

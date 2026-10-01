@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Run agentknit with DeepSeek Flash through the official DeepSeek API.
 
-Endpoint: https://api.deepseek.com (OpenAI-compatible).  The API key is read
-from the system keyring (service ``login2``, username ``deepseek_api_key``),
-never from a source-controlled environment variable.
+Endpoint and key source come from the inference-db entry ``deepseek``.
 
 Usage:
     agentknit-deepseek-flash "<task>"           # one-shot
@@ -22,7 +20,7 @@ import agentknit
 from agentknit.async_toolkit import enable_nohup
 
 MODEL = "deepseek-flash"
-ENDPOINT = "https://api.deepseek.com/v1"
+INFERENCE_DB = "deepseek"
 
 _home = os.path.expanduser("~")
 _cwd = os.getcwd()
@@ -41,12 +39,9 @@ def main() -> None:
     # Resume hints must re-invoke this launcher, not the generic agentknit CLI.
     os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
 
-    schema = agentknit.load_specification(MODEL, ENDPOINT)
-    # load_specification() may return a cached probe whose "endpoint" is stale
-    # (e.g. the Azure deployment probed earlier); pin it to the official API.
-    schema["endpoint"] = ENDPOINT
-    schema["keyring_service"] = "login2"
-    schema["keyring_username"] = "deepseek_api_key"
+    # The inference-db entry pins the endpoint even when the cached probe
+    # spec carries a stale one (e.g. the Azure deployment probed earlier).
+    schema = agentknit.load_specification(MODEL, inference_db=INFERENCE_DB)
     schema["display_name"] = "DeepSeek Flash (official API)"
     # Context window measured by llmprobe (reports/deepseek-flash).
     schema["context_window"] = 1048576

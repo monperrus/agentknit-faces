@@ -2,7 +2,8 @@
 """Agent wrapper for glm-4.5-air via api.z.ai.
 
 glm-4.5-air is z.ai's lightweight (flash/mini) model on the same endpoint
-as glm-5.2. API key retrieved from keyring (service: z.ai, username: api_key).
+as glm-5.2. Endpoint and key source come from the inference-db entry
+``zai-coding``.
 
 Usage:
     agentknit-glm-4.5-air "<task>"           # one-shot
@@ -17,7 +18,7 @@ import agentknit
 from agentknit.async_toolkit import enable_nohup
 
 MODEL    = "glm-4.5-air"
-ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
+INFERENCE_DB = "zai-coding"
 
 # z.ai caches prompt prefixes in 64-token blocks and reports
 # ``cached_tokens: 0`` for any prompt too short to fill a whole block, so such
@@ -46,11 +47,7 @@ def entry() -> None:
     # Resume hints must re-invoke this launcher, not the generic agentknit CLI.
     os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
 
-    # Load spec and inject keyring config so agentknit resolves the API key
-    # via keyring directly, without any shared env-var convention.
-    schema = agentknit.load_specification(MODEL, ENDPOINT)
-    schema["keyring_service"]  = "z.ai"
-    schema["keyring_username"] = "api_key"
+    schema = agentknit.load_specification(MODEL, inference_db=INFERENCE_DB)
     # z.ai publishes no context-window figure for glm-4.5-air; llmprobe found
     # none either. GLM-4.5-Air ships with 131072 tokens.
     schema["context_window"] = 131072
