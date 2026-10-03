@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Agent wrapper for glm-4.5-air via api.z.ai.
+"""Agent wrapper for glm-4.5-air via api.z.ai — DEPRECATED.
 
-glm-4.5-air is z.ai's lightweight (flash/mini) model on the same endpoint
-as glm-5.2. Endpoint and key source come from the inference-db entry
-``zai-coding``.
+glm-4.5-air is retired on the GLM Coding Plan: z.ai serves glm-5.3-flash for
+it (inference-db ``zai-coding`` model_status).  The command is kept so existing
+scripts and saved sessions keep working; use ``agentknit-glm-5.3-flash-tui``.
+Endpoint and key source come from the inference-db entry ``zai-coding``.
 
 Usage:
     agentknit-glm-4.5-air "<task>"           # one-shot
@@ -46,6 +47,8 @@ def entry() -> None:
     """Dispatch a one-shot task, stdin task, or interactive agent REPL."""
     # Resume hints must re-invoke this launcher, not the generic agentknit CLI.
     os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
+    print("agentknit-glm-4.5-air is deprecated: z.ai serves glm-5.3-flash for "
+          "glm-4.5-air; use agentknit-glm-5.3-flash-tui", file=sys.stderr)
 
     schema = agentknit.load_specification(MODEL, inference_db=INFERENCE_DB)
     # z.ai publishes no context-window figure for glm-4.5-air; llmprobe found
