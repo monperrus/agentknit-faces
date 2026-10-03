@@ -30,7 +30,6 @@ ZAI_FACES = (
     "agent-glm-5.3.py",
     "agent-glm-5.3-tui.py",
     "agent-glm-5.3-flash-tui.py",
-    "agent-glm-4.5-air.py",
     "agent-glm-5.3-tui-superlean.py",
 )
 

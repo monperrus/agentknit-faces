@@ -26,7 +26,6 @@ uvx --from "agentknit-faces[tui]" agentknit-glm-5.3-tui
 | `agentknit-glm-5.3` | glm-5.3 via api.z.ai |
 | `agentknit-glm-5.3-tui` | glm-5.3 via api.z.ai, Textual TUI |
 | `agentknit-glm-5.3-flash-tui` | glm-5.3-flash via api.z.ai, Textual TUI |
-| `agentknit-glm-4.5-air` | deprecated: z.ai serves glm-5.3-flash for glm-4.5-air; use `agentknit-glm-5.3-flash-tui` |
 | `agentknit-deepseek-v4-flash` | DeepSeek V4 Flash via the official DeepSeek API (`api.deepseek.com`) |
 | `agentknit-kimi-k3` | Kimi K3 via the official Kimi Coding Plan API |
 | `agentknit-kimi-k3-tui` | Kimi K3 via the official Kimi Coding Plan API, Textual TUI |
@@ -49,7 +48,7 @@ The faces declare the floor in their schema:
 
 | Backend | Floor | Basis |
 |---|---|---|
-| z.ai (`glm-5.3`, `glm-4.5-air`) | 66 prompt tokens | measured: prefixes are cached in 64-token blocks; prompt 63/64/65 → `cached_tokens: 0`, prompt 66 → `cached_tokens: 64` |
+| z.ai (`glm-5.3`, `glm-5.3-flash`) | 66 prompt tokens | measured: prefixes are cached in 64-token blocks; prompt 63/64/65 → `cached_tokens: 0`, prompt 66 → `cached_tokens: 64` |
 | Kimi Coding Plan (`k3`) | 1024 prompt tokens | conservative estimate (floor not published; fields appear from ~3k prompt tokens) |
 
 See `tests/test_min_cacheable_tokens.py` for the measurement notes and the
