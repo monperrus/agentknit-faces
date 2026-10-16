@@ -16,7 +16,8 @@ from __future__ import annotations
 import importlib.util
 import os
 
-MODEL = "run:///home/martin/bin/claude-haiku-completions.py"
+MODEL = "run:///home/martin/bin/anthropic-completions.py"
+os.environ["ANTHROPIC_COMPLETIONS_MODEL"] = "claude-haiku-4.5"  # the run:// child reads it
 # Claude Haiku's context window (llmprobe has no report for this wrapper;
 # 200k is Anthropic's standard Haiku context size).
 CONTEXT_WINDOW = 200000
