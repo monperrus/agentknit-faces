@@ -41,9 +41,20 @@ Usage:
     agent-kimi-k3-tui-superlean.py --local            # use a local gateway instance
     agent-kimi-k3-tui-superlean.py --session <id>     # resume a previous session
     agent-kimi-k3-tui-superlean.py --non-interactive  # disable ask_user_question
+
+The first screen asks which inference provider / model to use. Routes:
+
+* superleanai (default) -- this script's usual Kimi-K3-over-gateway
+  schema, with the superleanai endpoint chosen by --local.
+* anything else -- an inference-db entry; the models offered come from
+  inference-db's cached model list (~/.config/inference-db/models.json,
+  refresh with `inference-db refresh-models`). Non-superleanai routes are
+  plain agentknit loads, so only chat-completions / messages / responses
+  entries will work.
 """
 
 import atexit
+import json
 import os
 import secrets as _secrets
 import signal
@@ -52,6 +63,13 @@ import subprocess
 import sys
 import time
 import urllib.request
+from pathlib import Path
+
+from textual import on
+from textual.app import ComposeResult
+from textual.containers import Vertical
+from textual.screen import Screen
+from textual.widgets import Button, Input, Label, ListItem, ListView, Static
 
 MODEL = "k3"
 # Production gateway endpoint and K3's temperature=1 quirk come from
@@ -61,6 +79,7 @@ PROFILE_NAME = "kimi"
 PROD_GATEWAY = "https://api.superleanai.com"
 KEYRING_SERVICE = "login2"
 KEYRING_KIMI_KEY = "kimi_api_key"
+KIMI_CONTEXT_WINDOW = 1048576
 
 SUPERLEAN_ROOT = os.environ.get(
     "SUPERLEANAI_ROOT", os.path.expanduser("~/workspace/superleanai")
@@ -218,8 +237,8 @@ def _patch_accept_encoding() -> None:
     requests.Session.request = request_without_accept_encoding
 
 
-def _build_schema(gateway_base: str, token: str) -> dict:
-    schema = agentknit.load_specification(MODEL, inference_db=INFERENCE_DB)
+def _build_schema(gateway_base: str, token: str, model: str = MODEL) -> dict:
+    schema = agentknit.load_specification(model, inference_db=INFERENCE_DB)
     if gateway_base != PROD_GATEWAY:
         schema["endpoint"] = f"{gateway_base}/{PROFILE_NAME}/v1"
     # Auth is the minted JWT, supplied via env var so it never appears on a
@@ -230,12 +249,177 @@ def _build_schema(gateway_base: str, token: str) -> dict:
     schema["key_env"] = "SUPERLEAN_PROXY_TOKEN"
     os.environ["SUPERLEAN_PROXY_TOKEN"] = token
     schema["display_name"] = "Kimi K3 via superleanai"
-    # Context window measured by llmprobe (reports/k3).
-    schema["context_window"] = 1048576
+    # Context window measured by llmprobe (reports/k3); K3.1 ids have the
+    # same 1 Mi window per the Coding Plan /models endpoint.
+    schema["context_window"] = KIMI_CONTEXT_WINDOW
     # Trigger compaction at 75 % of the window: the last observed prompt plus
     # one more assistant reply + tool result must still fit.
-    schema["compaction_trigger_tokens"] = 786432
+    schema["compaction_trigger_tokens"] = int(KIMI_CONTEXT_WINDOW * 0.75)
     return schema
+
+
+def _build_entry_schema(entry_id: str, model: str) -> dict:
+    """Plain agentknit schema for an inference-db entry (no gateway)."""
+    schema = agentknit.load_specification(model, inference_db=entry_id)
+    schema["display_name"] = f"{model} via {entry_id}"
+    return schema
+
+
+def _route_label(route: dict) -> str:
+    if route["kind"] == "superleanai":
+        return "superleanai → kimi-coding (logged gateway, Kimi K3)"
+    if route["kind"] == "entry":
+        return route["entry_id"]
+    return f"{route['entry_id']} · {route['model']}"
+
+
+def _route_choices() -> list[dict]:
+    """First-screen routes: the superleanai gateway, then one per (entry, model)."""
+    from agentknit import inference_db as idb
+
+    import tomllib
+
+    with open(idb.db_path(), "rb") as f:
+        entries = tomllib.load(f).get("endpoints", {})
+    cache_path = Path(idb.db_path()).parent / "models.json"
+    cached: dict = {}
+    if cache_path.is_file():
+        cached = json.loads(cache_path.read_text())
+
+    routes: list[dict] = [{"kind": "superleanai"}]
+    for entry_id in sorted(entries):
+        if entry_id == INFERENCE_DB:
+            continue
+        entry = entries[entry_id]
+        if not isinstance(entry, dict):
+            continue  # sub-tables (headers, list_models, ...) share the prefix
+        types = entry.get("type") or []
+        if isinstance(types, str):
+            types = [types]
+        if not set(types) & {"chat-completions", "messages", "responses"}:
+            continue
+        models = (cached.get(entry_id) or {}).get("models") or entry.get("models") or []
+        if entry.get("list_models", {}).get("unsupported") and not models:
+            continue
+        if models:
+            routes.extend({"kind": "model", "entry_id": entry_id, "model": m}
+                          for m in sorted(models))
+        else:
+            routes.append({"kind": "entry", "entry_id": entry_id})
+    return routes
+
+
+class ProviderPickerScreen(Screen[dict]):
+    """First screen: pick the inference provider / model for this session."""
+
+    CSS = """
+    ProviderPickerScreen {
+        align: center middle;
+    }
+    #picker {
+        width: 72;
+        height: auto;
+        max-height: 90%;
+        border: round $accent;
+        padding: 1 2;
+    }
+    #picker-filter {
+        height: auto;
+        margin: 0 0 1 0;
+    }
+    #picker-list-box {
+        height: auto;
+        max-height: 30;
+    }
+    #picker-list-box ListView {
+        height: auto;
+        max-height: 30;
+    }
+    #picker-hint {
+        color: $text-muted;
+    }
+    """
+
+    BINDINGS = [("escape", "cancel", "Use default")]
+
+    def __init__(self, routes: list[dict]) -> None:
+        super().__init__()
+        self._routes = routes
+        self._visible = list(range(len(routes)))
+        self._generation = 0
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="picker"):
+            yield Static("Which inference provider / model?", id="picker-title")
+            yield Input(placeholder="filter (e.g. kimi, glm, opus)…", id="picker-filter")
+            yield Vertical(id="picker-list-box")
+            yield Static("type to filter · ↓/↑/enter: select · esc: default (superleanai)",
+                         id="picker-hint")
+
+    def on_mount(self) -> None:
+        self._rebuild_list("")
+        self.query_one("#picker-filter", Input).focus()
+
+    def _rebuild_list(self, query: str) -> None:
+        terms = query.strip().lower().split()
+        self._visible = [i for i, r in enumerate(self._routes)
+                         if all(t in _route_label(r).lower() for t in terms)]
+        self._generation += 1
+        view = ListView(*[
+            # Fresh ids each rebuild: the previous ListView unmounts
+            # asynchronously, so reusing ids would clash in the DOM registry.
+            ListItem(Label(_route_label(self._routes[i])),
+                     id=f"route-{self._generation}-{i}")
+            for i in self._visible[:200]  # cap: ListView with 1000+ items is slow
+        ])
+        box = self.query_one("#picker-list-box", Vertical)
+        box.remove_children()
+        box.mount(view)
+
+    @on(Input.Changed)
+    def _filter(self, event: Input.Changed) -> None:
+        self._rebuild_list(event.value)
+
+    def on_key(self, event) -> None:
+        if self.focused and self.focused.id == "picker-filter":
+            if event.key == "down":
+                self.query_one(ListView).focus()
+                event.stop()
+                return
+            if event.key == "enter":
+                # On a unique match, enter picks it directly; otherwise move
+                # into the list (same as arrow down).
+                event.stop()
+                if len(self._visible) == 1:
+                    self.dismiss(self._routes[self._visible[0]])
+                elif self._visible:
+                    self.query_one(ListView).focus()
+                return
+
+    @on(ListView.Selected)
+    def _selected(self, event: ListView.Selected) -> None:
+        index = int(str(event.item.id).rsplit("-", 1)[-1])
+        self.dismiss(self._routes[index])
+
+    def action_cancel(self) -> None:
+        self.dismiss({"kind": "superleanai"})
+
+
+def _run_route_picker(routes: list[dict]) -> dict:
+    """Show the picker as a first screen; returns the chosen route."""
+    from textual.app import App
+
+    class PickerApp(App[dict]):
+        def compose(self) -> ComposeResult:
+            yield from ()
+
+        def on_mount(self) -> None:
+            self.push_screen(ProviderPickerScreen(routes),
+                             lambda route: self.exit(route))
+
+    app = PickerApp()
+    app.run()
+    return app.return_value or {"kind": "superleanai"}
 
 
 def main() -> int:
@@ -262,21 +446,27 @@ def main() -> int:
         task_args.append(argument)
     task = " ".join(task_args)
 
+    route = _run_route_picker(_route_choices())
+
     try:
-        _patch_accept_encoding()
-        if local:
-            token = _mint_proxy_jwt(_keyring_password(KEYRING_KIMI_KEY), _jwt_secret())
+        if route["kind"] == "superleanai":
+            _patch_accept_encoding()
+            if local:
+                token = _mint_proxy_jwt(_keyring_password(KEYRING_KIMI_KEY), _jwt_secret())
+            else:
+                token = _api_token()
+            if local:
+                _proc, port = _start_local_proxy()
+                gateway_base = f"http://127.0.0.1:{port}"
+                print(f"superleanai middleware (local) on {gateway_base}/{PROFILE_NAME}/v1")
+            else:
+                gateway_base = PROD_GATEWAY
+                _wait_for_gateway(gateway_base)
+                print(f"superleanai middleware (production) on {gateway_base}/{PROFILE_NAME}/v1")
+            schema = _build_schema(gateway_base, token)
         else:
-            token = _api_token()
-        if local:
-            _proc, port = _start_local_proxy()
-            gateway_base = f"http://127.0.0.1:{port}"
-            print(f"superleanai middleware (local) on {gateway_base}/{PROFILE_NAME}/v1")
-        else:
-            gateway_base = PROD_GATEWAY
-            _wait_for_gateway(gateway_base)
-            print(f"superleanai middleware (production) on {gateway_base}/{PROFILE_NAME}/v1")
-        schema = _build_schema(gateway_base, token)
+            model = route.get("model") or input("model id: ").strip()
+            schema = _build_entry_schema(route["entry_id"], model)
 
         validate_schema(schema)
         agentknit.check_and_display_pricing(schema)
