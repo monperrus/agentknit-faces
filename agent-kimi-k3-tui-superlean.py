@@ -66,6 +66,7 @@ selections count, esc (the gateway default) is not a pick. Routes:
 import atexit
 import json
 import os
+import re
 import secrets as _secrets
 import signal
 import socket
@@ -73,6 +74,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from typing import NamedTuple
 from pathlib import Path
 
 from textual import on
@@ -303,24 +305,101 @@ def _model_chat_ok(model_id: str) -> bool:
 # gemini-3-flash-preview is the preview channel of gemini-3-flash.
 _CHANNEL_SUFFIXES = ("-preview", "-latest", "-exp", "-experimental")
 
+# A snapshot date is an ordering signal, not part of the model's identity:
+# gemini-2.5-flash-native-audio-preview-09-2025 is older than -preview-12-2025,
+# gpt-4o is the alias of gpt-4o-2024-11-20.
+_DATE_YMD = re.compile(r"-(?:preview-)?(\d{4})-(\d{2})-(\d{2})$")
+_DATE_COMPACT = re.compile(r"-(?:preview-)?(\d{8})$")
+_DATE_MY = re.compile(r"-(?:preview-)?(\d{1,2})-(\d{4})$")
+_DATE_FOUR = re.compile(r"-(?:preview-)?(\d{4})$")
 
-def _model_version(model_id: str) -> tuple[str, tuple[int, ...], str] | None:
-    """Split an id into (family prefix, version, variant suffix), or None.
 
-    ``models/gemini-3.1-flash`` -> ("models/gemini-", (3, 1), "-flash");
-    ``claude-opus-5`` -> ("claude-opus-", (5,), "").
+def _plausible(year: int, month: int, day: int) -> bool:
+    """Whether a parsed stamp could be a release date (year 0 = unknown)."""
+    if year and not 2020 <= year <= 2035:
+        return False
+    if not 1 <= month <= 12:
+        return False
+    return day == 0 or 1 <= day <= 31
 
-    Only cleanly versioned ids qualify, so that a size is never mistaken for
-    a version: the number is 1-2 digits, not zero-padded, and not glued to a
+
+def _split_date(low: str) -> tuple[str, tuple[int, ...]]:
+    """Strip a trailing snapshot date; return (base id, (year, month, day)).
+
+    Shaped after the stamps providers actually use: ``2025-07-28``,
+    ``20250728``, ``09-2025``, ``2512`` (YYMM), ``0613`` (MMDD) and ``2025``.
+    """
+    match = _DATE_YMD.search(low)
+    if match:
+        year, month, day = (int(g) for g in match.groups())
+        if _plausible(year, month, day):
+            return low[: match.start()], (year, month, day)
+    match = _DATE_COMPACT.search(low)
+    if match:
+        digits = match.group(1)
+        year, month, day = int(digits[:4]), int(digits[4:6]), int(digits[6:])
+        if _plausible(year, month, day):
+            return low[: match.start()], (year, month, day)
+    match = _DATE_MY.search(low)
+    if match:
+        month, year = int(match.group(1)), int(match.group(2))
+        if _plausible(year, month, 0):
+            return low[: match.start()], (year, month, 0)
+    match = _DATE_FOUR.search(low)
+    if match:
+        value = match.group(1)
+        short, rest = int(value[:2]), int(value[2:])
+        if 20 <= short <= 35 and _plausible(0, rest, 0):
+            return low[: match.start()], (2000 + short, rest, 0)
+        if _plausible(int(value), 0, 0):
+            return low[: match.start()], (int(value), 0, 0)
+        if _plausible(0, short, rest):
+            return low[: match.start()], (0, short, rest)
+    return low, ()
+
+
+def _strip_channels(suffix: str) -> str:
+    """Drop trailing release channels (``-preview``, ``-latest``, ...)."""
+    stripped = True
+    while stripped:
+        stripped = False
+        for channel in _CHANNEL_SUFFIXES:
+            if suffix.endswith(channel):
+                suffix = suffix[: -len(channel)]
+                stripped = True
+    return suffix
+
+
+class _ModelId(NamedTuple):
+    """How a catalog id decomposes into a model family member."""
+
+    prefix: str
+    version: tuple[int, ...]
+    variant: str
+    date: tuple[int, ...]
+    channel: bool  # named after a release channel (-preview, -latest, ...)
+
+
+def _model_version(model_id: str) -> _ModelId | None:
+    """Split an id into (family prefix, version, variant, snapshot date).
+
+    ``models/gemini-3.1-flash`` -> _ModelId("models/gemini-", (3, 1),
+    "-flash", (), False); ``claude-opus-5`` -> _ModelId("claude-opus-",
+    (5,), "", (), False).
+
+    Only cleanly versioned ids get a version, so that a size is never mistaken
+    for one: the number is 1-2 digits, not zero-padded, and not glued to a
     letter (``granite-8b``, ``ministral-3b-2512`` are sizes), and further
     components only continue across ``.`` or ``-`` before another such
     number that is not followed by a letter (``llama-3.1-70b`` is version
     3.1, size 70b -- version 3, not 3.1.70).
     """
-    low = model_id.lower()
+    low, date = _split_date(model_id.lower().lstrip("~@"))
     start = next((i for i, c in enumerate(low) if c.isdigit()), None)
     if start is None:
-        return None
+        # A snapshot date can be the only ordering an id carries, as in
+        # antigravity-preview-05-2026.
+        return _ModelId(low, (), "", date, False) if date else None
     groups: list[int] = []
     i = end = start
     while True:
@@ -344,31 +423,51 @@ def _model_version(model_id: str) -> tuple[str, tuple[int, ...], str] | None:
         i = j + 1
     if not groups:
         return None
-    suffix = low[end:]
-    stripped = True
-    while stripped:
-        stripped = False
-        for channel in _CHANNEL_SUFFIXES:
-            if suffix.endswith(channel):
-                suffix = suffix[: -len(channel)]
-                stripped = True
-    return low[:start], tuple(groups), suffix
+    suffix = _strip_channels(low[end:])
+    return _ModelId(low[:start], tuple(groups), suffix, date,
+                    suffix != low[end:])
+
+
+def _model_rank(parts: _ModelId) -> tuple:
+    """Order ids of one family: newest version, then plain name, then newest date.
+
+    Across versions the version wins, so ``gemini-3.8-flash`` beats a dated
+    ``gemini-2.5-flash-09-2025``. Within a version the plain id beats its own
+    snapshots (``gpt-4o`` over ``gpt-4o-2024-11-20``), a snapshot beats the
+    floating ``-latest`` / ``-preview`` alias, and snapshots order by date.
+    """
+    tier = 0 if parts.channel else (1 if parts.date else 2)
+    return parts.version, tier, parts.date
 
 
 def _shadowed_models(models: list[str]) -> set[str]:
-    """Ids made redundant by a newer member of the same version family."""
-    newest: dict[tuple[str, str], tuple[tuple[int, ...], str]] = {}
+    """Ids made redundant by a newer member of the same version family.
+
+    Two kinds of redundancy: an older version of a family, and an unversioned
+    alias of it -- ``gemini-flash-latest`` names whatever ``gemini-3.8-flash``
+    is today, so listing both offers the same model twice.
+    """
+    newest: dict[tuple[str, str], tuple[tuple, str]] = {}
+    families: dict[str, tuple[str, str]] = {}
     for model in models:
         parts = _model_version(model)
         if parts is None:
             continue
-        family = (parts[0], parts[2])
-        if family not in newest or parts[1] > newest[family][0]:
-            newest[family] = (parts[1], model)
+        family = (parts.prefix, parts.variant)
+        rank = _model_rank(parts)
+        if family not in newest or rank > newest[family][0]:
+            newest[family] = (rank, model)
+        families[model] = family
+    names = {(prefix + suffix.lstrip("-")).rstrip("-") for prefix, suffix in newest}
     shadowed = set()
     for model in models:
-        parts = _model_version(model)
-        if parts is not None and newest[(parts[0], parts[2])][1] != model:
+        if model in families:
+            if newest[families[model]][1] != model:
+                shadowed.add(model)
+            continue
+        low = model.lower().lstrip("~@")
+        alias = _strip_channels(_split_date(low)[0]).rstrip("-")
+        if not any(c.isdigit() for c in alias) and alias in names:
             shadowed.add(model)
     return shadowed
 
@@ -513,6 +612,29 @@ def _route_choices() -> list[dict]:
     return routes
 
 
+def _matching_routes(routes: list[dict], query: str, recent: dict) -> list[int]:
+    """Indices a query shows.
+
+    A catalog that lists every generation of every model is a wall, not a
+    choice: only the newest version of each family is listed.  Two escape
+    hatches keep older ones reachable: typing a full id shows exactly that
+    model, and a route picked in the last week is never hidden (the promoted
+    five must stay one keypress away).
+    """
+    text = query.strip().lower()
+    terms = text.split()
+    hits = [i for i, r in enumerate(routes)
+            if all(t in _route_label(r).lower() for t in terms)]
+    if text:
+        exact = [i for i in hits if str(routes[i].get("model", "")).lower() == text]
+        if exact:
+            return exact
+    freshness = [i for i in hits
+                 if not routes[i].get("shadowed")
+                 or _route_key(routes[i]) in recent]
+    return freshness or hits
+
+
 class ProviderPickerScreen(Screen[dict]):
     """First screen: pick the inference provider / model for this session."""
 
@@ -572,18 +694,7 @@ class ProviderPickerScreen(Screen[dict]):
 
     def _rebuild_list(self, query: str) -> None:
         terms = query.strip().lower().split()
-        hits = [i for i, r in enumerate(self._routes)
-                if all(t in _route_label(r).lower() for t in terms)]
-        # A catalog that lists every generation of every model is a wall, not
-        # a choice: the unfiltered list shows only the newest version of each
-        # family.  Older ones stay reachable by typing their id (a query that
-        # matches nothing else falls back to them).
-        # A route picked in the last week is not shadowed for this user: the
-        # promoted five must stay reachable without typing their ids.
-        freshness = [i for i in hits
-                     if not self._routes[i].get("shadowed")
-                     or _route_key(self._routes[i]) in self._recent]
-        self._visible = freshness or hits
+        self._visible = _matching_routes(self._routes, query, self._recent)
         if not terms:
             # Opening the picker: most-picked-this-week first, then the rest
             # in catalog order. A filter query keeps plain catalog order --
