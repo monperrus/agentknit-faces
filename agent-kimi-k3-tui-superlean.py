@@ -305,6 +305,11 @@ def _model_chat_ok(model_id: str) -> bool:
 # gemini-3-flash-preview is the preview channel of gemini-3-flash.
 _CHANNEL_SUFFIXES = ("-preview", "-latest", "-exp", "-experimental")
 
+# Letters glued to a number that make it a size or a count rather than a
+# version: granite-8b, mixtral-8x7b, llama-3-8k. Any other glued letter names
+# a variant, as the "o" of gpt-4o.
+_SIZE_UNITS = frozenset("bkmx")
+
 # A snapshot date is an ordering signal, not part of the model's identity:
 # gemini-2.5-flash-native-audio-preview-09-2025 is older than -preview-12-2025,
 # gpt-4o is the alias of gpt-4o-2024-11-20.
@@ -389,7 +394,8 @@ def _model_version(model_id: str) -> _ModelId | None:
 
     Only cleanly versioned ids get a version, so that a size is never mistaken
     for one: the number is 1-2 digits, not zero-padded, and not glued to a
-    letter (``granite-8b``, ``ministral-3b-2512`` are sizes), and further
+    size unit (``granite-8b``, ``ministral-3b-2512``; but ``gpt-4o`` is
+    version 4 with an ``o`` variant), and further
     components only continue across ``.`` or ``-`` before another such
     number that is not followed by a letter (``llama-3.1-70b`` is version
     3.1, size 70b -- version 3, not 3.1.70).
@@ -410,7 +416,12 @@ def _model_version(model_id: str) -> _ModelId | None:
         if len(digits) > 2 or (len(digits) > 1 and digits[0] == "0"):
             break  # a date stamp or a year, not a version component
         if not groups and j < len(low) and low[j].isalpha():
-            return None
+            k = j
+            while k < len(low) and low[k].isalpha():
+                k += 1
+            if set(low[j:k]) <= _SIZE_UNITS:
+                return None  # a size or a count, as in granite-8b
+            # Otherwise the letters name a variant, as in gpt-4o: version 4.
         groups.append(int(digits))
         end = j
         if not (j + 1 < len(low) and low[j] in ".-" and low[j + 1].isdigit()):
@@ -441,14 +452,19 @@ def _model_rank(parts: _ModelId) -> tuple:
 
 
 def _shadowed_models(models: list[str]) -> set[str]:
-    """Ids made redundant by a newer member of the same version family.
+    """Ids made redundant by a newer member of the same model family.
 
-    Two kinds of redundancy: an older version of a family, and an unversioned
-    alias of it -- ``gemini-flash-latest`` names whatever ``gemini-3.8-flash``
-    is today, so listing both offers the same model twice.
+    Three kinds of redundancy: an older version of a family, an older
+    generation of it (``gpt-4o`` and ``gpt-5-mini`` once ``gpt-6`` exists --
+    a variant suffix names a size or a modality, not a different generation),
+    and an unversioned alias of it (``gemini-flash-latest`` names whatever
+    ``gemini-3.8-flash`` is today, so listing both offers the same model
+    twice).
     """
     newest: dict[tuple[str, str], tuple[tuple, str]] = {}
     families: dict[str, tuple[str, str]] = {}
+    parsed: dict[str, _ModelId] = {}
+    generation: dict[str, int] = {}
     for model in models:
         parts = _model_version(model)
         if parts is None:
@@ -458,11 +474,20 @@ def _shadowed_models(models: list[str]) -> set[str]:
         if family not in newest or rank > newest[family][0]:
             newest[family] = (rank, model)
         families[model] = family
+        parsed[model] = parts
+        if parts.version:
+            generation[parts.prefix] = max(generation.get(parts.prefix, 0),
+                                           parts.version[0])
     names = {(prefix + suffix.lstrip("-")).rstrip("-") for prefix, suffix in newest}
     shadowed = set()
     for model in models:
         if model in families:
             if newest[families[model]][1] != model:
+                shadowed.add(model)
+                continue
+            # Same variant, older generation: gpt-4o under gpt-6.
+            version = parsed[model].version
+            if version and version[0] < generation[parsed[model].prefix]:
                 shadowed.add(model)
             continue
         low = model.lower().lstrip("~@")
@@ -616,7 +641,8 @@ def _matching_routes(routes: list[dict], query: str, recent: dict) -> list[int]:
     """Indices a query shows.
 
     A catalog that lists every generation of every model is a wall, not a
-    choice: only the newest version of each family is listed.  Two escape
+    choice: only the newest generation and version of each family is listed
+    (gpt-4o and gpt-5-mini go once gpt-6 arrives).  Two escape
     hatches keep older ones reachable: typing a full id shows exactly that
     model, and a route picked in the last week is never hidden (the promoted
     five must stay one keypress away).
@@ -684,7 +710,7 @@ class ProviderPickerScreen(Screen[dict]):
             yield Vertical(id="picker-list-box")
             yield Static("type to filter · ↓/↑/enter: select · esc: default (superleanai)"
                          " · ★: picked in the last 7 days, listed first"
-                         " · only the newest version of each model is listed;"
+                         " · only the newest generation of each model is listed;"
                          " type an older id to pick it",
                          id="picker-hint")
 

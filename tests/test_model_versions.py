@@ -1,13 +1,15 @@
-"""The provider picker shows only the newest version of each model family.
+"""The provider picker shows only the newest generation of each model family.
 
 A provider catalog lists every generation it still serves (gemini-2.5-flash,
-gemini-3-flash-preview, ... gemini-3.8-flash); the picker keeps the newest of
-a family and hides the rest, which stay reachable by typing their id in the
-filter.
+gemini-3-flash-preview, ... gemini-3.8-flash, and gpt-4o/gpt-5-mini next to
+gpt-6); the picker keeps the newest of a family and hides the rest, which stay
+reachable by typing their id in the filter.
 
 The hard part is telling a version from a size: ``llama-3.1-70b`` is version
 3.1 at size 70b, ``granite-8b``/``ministral-14b`` carry a size and no version
-at all, and a release stamp (``-2512``, ``-2024-11-20``) is not a component.
+at all (a unit letter ``b``/``k``/``m``/``x`` glued to the number), whereas
+``gpt-4o`` is version 4 with an ``o`` variant; a release stamp (``-2512``,
+``-2024-11-20``) is not a component either.
 """
 
 from __future__ import annotations
@@ -76,7 +78,8 @@ def test_model_version(face, model: str, expected) -> None:
         "ibm/granite-34b-code-instruct",
         "mistralai/ministral-14b-2512",
         "models/gemini-flash-latest",
-        "gpt-4o",  # the 4 is glued to a letter, so it is not a version
+        "ibm/granite-8b",  # the 8 is glued to a size unit, not a version
+        "mistralai/mixtral-8x7b",
     ],
 )
 def test_unversioned(face, model: str) -> None:
@@ -110,6 +113,23 @@ def test_newest_release_stamp_wins(face) -> None:
                 "mistralai/mistral-large-2512"]
     assert face._shadowed_models(floating) == {"mistralai/mistral-large",
                                                "mistralai/mistral-large-latest"}
+
+
+def test_older_generation_is_hidden_across_variants(face) -> None:
+    # gpt-3.5-turbo, gpt-4o and gpt-5-mini are superseded by gpt-6: a variant
+    # suffix names a size or a modality, not another generation.
+    catalog = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.1-mini", "gpt-5-mini",
+               "gpt-5.6-sol", "gpt-6-sol", "gpt-6.1-sol"]
+    assert face._shadowed_models(catalog) == set(catalog[:-1])
+    # Within the newest generation the variant rule alone applies.
+    same = ["gpt-6-sol", "gpt-6.1-sol", "gpt-6.1-sol-pro"]
+    assert face._shadowed_models(same) == {"gpt-6-sol"}
+    # Other prefixes are untouched: no gemini-6 exists to retire gemini-3.
+    mixed = ["gpt-6-sol", "gemini-3-flash", "gemini-2.5-flash"]
+    assert face._shadowed_models(mixed) == {"gemini-2.5-flash"}
+    # A size is still not a version, so it never triggers the rule.
+    sizes = ["granite-8b", "granite-34b-2512"]
+    assert face._shadowed_models(sizes) == set()
 
 
 def _route(model: str, *, shadowed: bool = False) -> dict:
