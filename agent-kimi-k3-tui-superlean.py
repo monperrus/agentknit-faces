@@ -273,10 +273,12 @@ def _build_entry_schema(entry_id: str, model: str) -> dict:
 
 # Model ids that can never carry a chat conversation. Provider catalogs mix
 # generators and batch-only ids into /models; offering them in the picker is
-# a guaranteed 400/404.
+# a guaranteed 400/404. "live" covers the realtime/speech-to-speech ids
+# (gemini-3.8-live, gpt-live-1) whose API is a bidirectional audio session,
+# not chat completions.
 _BAD_MODEL_PARTS = (
     "veo", "sora", "imagen", "dall-e", "tts", "transcribe", "whisper",
-    "embed", "bge-", "moderation", "guard",
+    "embed", "bge-", "moderation", "guard", "live",
 )
 
 # Entries whose whole cached catalog is filtered (not just curated subsets):
