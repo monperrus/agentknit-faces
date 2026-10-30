@@ -295,6 +295,80 @@ def _model_chat_ok(model_id: str) -> bool:
     return not any(p in low for p in _BAD_MODEL_PARTS)
 
 
+# Release channels that do not change which model family an id belongs to:
+# gemini-3-flash-preview is the preview channel of gemini-3-flash.
+_CHANNEL_SUFFIXES = ("-preview", "-latest", "-exp", "-experimental")
+
+
+def _model_version(model_id: str) -> tuple[str, tuple[int, ...], str] | None:
+    """Split an id into (family prefix, version, variant suffix), or None.
+
+    ``models/gemini-3.1-flash`` -> ("models/gemini-", (3, 1), "-flash");
+    ``claude-opus-5`` -> ("claude-opus-", (5,), "").
+
+    Only cleanly versioned ids qualify, so that a size is never mistaken for
+    a version: the number is 1-2 digits, not zero-padded, and not glued to a
+    letter (``granite-8b``, ``ministral-3b-2512`` are sizes), and further
+    components only continue across ``.`` or ``-`` before another such
+    number that is not followed by a letter (``llama-3.1-70b`` is version
+    3.1, size 70b -- version 3, not 3.1.70).
+    """
+    low = model_id.lower()
+    start = next((i for i, c in enumerate(low) if c.isdigit()), None)
+    if start is None:
+        return None
+    groups: list[int] = []
+    i = end = start
+    while True:
+        j = i
+        while j < len(low) and low[j].isdigit():
+            j += 1
+        digits = low[i:j]
+        if len(digits) > 2 or (len(digits) > 1 and digits[0] == "0"):
+            break  # a date stamp or a year, not a version component
+        if not groups and j < len(low) and low[j].isalpha():
+            return None
+        groups.append(int(digits))
+        end = j
+        if not (j + 1 < len(low) and low[j] in ".-" and low[j + 1].isdigit()):
+            break
+        k = j + 1
+        while k < len(low) and low[k].isdigit():
+            k += 1
+        if len(low[j + 1:k]) > 2 or (k < len(low) and low[k].isalpha()):
+            break
+        i = j + 1
+    if not groups:
+        return None
+    suffix = low[end:]
+    stripped = True
+    while stripped:
+        stripped = False
+        for channel in _CHANNEL_SUFFIXES:
+            if suffix.endswith(channel):
+                suffix = suffix[: -len(channel)]
+                stripped = True
+    return low[:start], tuple(groups), suffix
+
+
+def _shadowed_models(models: list[str]) -> set[str]:
+    """Ids made redundant by a newer member of the same version family."""
+    newest: dict[tuple[str, str], tuple[tuple[int, ...], str]] = {}
+    for model in models:
+        parts = _model_version(model)
+        if parts is None:
+            continue
+        family = (parts[0], parts[2])
+        if family not in newest or parts[1] > newest[family][0]:
+            newest[family] = (parts[1], model)
+    shadowed = set()
+    for model in models:
+        parts = _model_version(model)
+        if parts is not None and newest[(parts[0], parts[2])][1] != model:
+            shadowed.add(model)
+    return shadowed
+
+
 def _route_label(route: dict) -> str:
     if route["kind"] == "superleanai":
         return "superleanai → kimi-coding (logged gateway, Kimi K3)"
@@ -340,7 +414,9 @@ def _route_choices() -> list[dict]:
         if len(models) > _FILTER_CATALOG_ABOVE:
             models = [m for m in models if _model_chat_ok(m)]
         if models:
-            routes.extend({"kind": "model", "entry_id": entry_id, "model": m}
+            shadowed = _shadowed_models(models)
+            routes.extend({"kind": "model", "entry_id": entry_id, "model": m,
+                           "shadowed": m in shadowed}
                           for m in sorted(models))
         else:
             routes.append({"kind": "entry", "entry_id": entry_id})
@@ -391,7 +467,9 @@ class ProviderPickerScreen(Screen[dict]):
             yield Static("Which inference provider / model?", id="picker-title")
             yield Input(placeholder="filter (e.g. kimi, glm, opus)…", id="picker-filter")
             yield Vertical(id="picker-list-box")
-            yield Static("type to filter · ↓/↑/enter: select · esc: default (superleanai)",
+            yield Static("type to filter · ↓/↑/enter: select · esc: default (superleanai)"
+                         " · only the newest version of each model is listed;"
+                         " type an older id to pick it",
                          id="picker-hint")
 
     def on_mount(self) -> None:
@@ -400,8 +478,14 @@ class ProviderPickerScreen(Screen[dict]):
 
     def _rebuild_list(self, query: str) -> None:
         terms = query.strip().lower().split()
-        self._visible = [i for i, r in enumerate(self._routes)
-                         if all(t in _route_label(r).lower() for t in terms)]
+        hits = [i for i, r in enumerate(self._routes)
+                if all(t in _route_label(r).lower() for t in terms)]
+        # A catalog that lists every generation of every model is a wall, not
+        # a choice: the unfiltered list shows only the newest version of each
+        # family.  Older ones stay reachable by typing their id (a query that
+        # matches nothing else falls back to them).
+        freshness = [i for i in hits if not self._routes[i].get("shadowed")]
+        self._visible = freshness or hits
         self._generation += 1
         view = ListView(*[
             # Fresh ids each rebuild: the previous ListView unmounts
