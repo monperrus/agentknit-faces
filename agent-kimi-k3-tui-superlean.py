@@ -49,8 +49,11 @@ The first screen asks which inference provider / model to use. Routes:
 * anything else -- an inference-db entry; the models offered come from
   inference-db's cached model list (~/.config/inference-db/models.json,
   refresh with `inference-db refresh-models`). Non-superleanai routes are
-  plain agentknit loads, so only chat-completions / messages / responses
-  entries will work.
+  plain agentknit loads, which only speak chat-completions -- entries typed
+  "messages" (Anthropic) or "responses" (OpenAI Responses, ChatGPT Codex)
+  are not offered at all, and models obviously unusable for chat
+  (video/image/audio generators, :batch-only ids) are filtered out of
+  large catalogs.
 """
 
 import atexit
@@ -265,6 +268,28 @@ def _build_entry_schema(entry_id: str, model: str) -> dict:
     return schema
 
 
+# Model ids that can never carry a chat conversation. Provider catalogs mix
+# generators and batch-only ids into /models; offering them in the picker is
+# a guaranteed 400/404.
+_BAD_MODEL_PARTS = (
+    "veo", "sora", "imagen", "dall-e", "tts", "transcribe", "whisper",
+    "embed", "bge-", "moderation", "guard",
+)
+
+# Entries whose whole cached catalog is filtered (not just curated subsets):
+# above this count the list is a provider dump, not a choice the provider
+# made for the user, so obviously non-chat ids are dropped.
+_FILTER_CATALOG_ABOVE = 12
+
+
+def _model_chat_ok(model_id: str) -> bool:
+    """Keep model ids that can plausibly carry a chat conversation."""
+    low = model_id.lower()
+    if low.endswith((":batch", "-batch")):
+        return False
+    return not any(p in low for p in _BAD_MODEL_PARTS)
+
+
 def _route_label(route: dict) -> str:
     if route["kind"] == "superleanai":
         return "superleanai → kimi-coding (logged gateway, Kimi K3)"
@@ -296,11 +321,17 @@ def _route_choices() -> list[dict]:
         types = entry.get("type") or []
         if isinstance(types, str):
             types = [types]
-        if not set(types) & {"chat-completions", "messages", "responses"}:
+        # agentknit only speaks chat-completions to the entry's url; it
+        # cannot honour "messages" (Anthropic /v1/messages) or "responses"
+        # (OpenAI Responses API) types and 400/404s on them. Offering those
+        # routes only produced guaranteed-broken sessions.
+        if "chat-completions" not in types:
             continue
         models = (cached.get(entry_id) or {}).get("models") or entry.get("models") or []
         if entry.get("list_models", {}).get("unsupported") and not models:
             continue
+        if len(models) > _FILTER_CATALOG_ABOVE:
+            models = [m for m in models if _model_chat_ok(m)]
         if models:
             routes.extend({"kind": "model", "entry_id": entry_id, "model": m}
                           for m in sorted(models))
