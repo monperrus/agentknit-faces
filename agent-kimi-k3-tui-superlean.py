@@ -318,6 +318,8 @@ def _route_choices() -> list[dict]:
         entry = entries[entry_id]
         if not isinstance(entry, dict):
             continue  # sub-tables (headers, list_models, ...) share the prefix
+        if entry.get("dormant"):
+            continue  # exhausted/dead account, kept in the db for reference
         types = entry.get("type") or []
         if isinstance(types, str):
             types = [types]
