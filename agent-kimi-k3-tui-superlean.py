@@ -41,6 +41,9 @@ Usage:
     agent-kimi-k3-tui-superlean.py --local            # use a local gateway instance
     agent-kimi-k3-tui-superlean.py --session <id>     # resume a previous session
     agent-kimi-k3-tui-superlean.py --non-interactive  # disable ask_user_question
+    agent-kimi-k3-tui-superlean.py --no-strict-cache-proof   # tolerate an endpoint
+                                                             # that reports no cache
+                                                             # accounting
 
 The first screen asks which inference provider / model to use. Routes:
 
@@ -72,7 +75,7 @@ from textual import on
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Input, Label, ListItem, ListView, Static
+from textual.widgets import Input, Label, ListItem, ListView, Static
 
 MODEL = "k3"
 # Production gateway endpoint and K3's temperature=1 quirk come from
@@ -481,6 +484,14 @@ def main() -> int:
 
     route = _run_route_picker(_route_choices())
 
+    # Strict cache proof is Kimi's guarantee: the coding-plan API reports
+    # cached_tokens on every call once the prefix floor is crossed.  Other
+    # entries cannot honour it -- Google's OpenAI-compatible surface returns no
+    # cache accounting at all -- so it is on for the gateway route and opt-in
+    # elsewhere (--strict-cache-proof / --no-strict-cache-proof).
+    strict_cache_proof = "--strict-cache-proof" in sys.argv or (
+        route["kind"] == "superleanai" and "--no-strict-cache-proof" not in sys.argv)
+
     try:
         if route["kind"] == "superleanai":
             _patch_accept_encoding()
@@ -528,12 +539,13 @@ def main() -> int:
         session_id=session_id,
         system_prompt_supplement=_SUPPLEMENT,
         prefill=task,
+        strict_cache_proof=strict_cache_proof,
         # Kimi's Coding Plan only reports cache accounting once the prompt
         # crosses its minimum cacheable prefix (observed: fields appear from
         # ~3k prompt tokens; the exact floor is not published, 4096 is a
         # conservative estimate).  Below that floor the first call exposes no
         # cache fields, which strict cache-proof mode would misread as broken.
-        min_cacheable_tokens=4096,
+        min_cacheable_tokens=4096 if route["kind"] == "superleanai" else None,
     )
     app.run()
     return 0
