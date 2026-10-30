@@ -277,20 +277,21 @@ def _build_entry_schema(entry_id: str, model: str) -> dict:
     return schema
 
 
-# Model ids that can never carry a chat conversation. Provider catalogs mix
-# generators and batch-only ids into /models; offering them in the picker is
-# a guaranteed 400/404. "live" covers the realtime/speech-to-speech ids
-# (gemini-3.8-live, gpt-live-1) whose API is a bidirectional audio session,
-# not chat completions.
+# Model ids that can never carry a chat conversation, by what they are for.
+# Provider catalogs mix generators, audio, retrieval and embedding ids into
+# /models; offering them in the picker is a guaranteed 400/404. Grouped so
+# that a missing modality is easy to spot:
+#   image/video generators: veo sora imagen dall-e image video 3d
+#   audio / realtime:        tts audio transcribe whisper speech music live
+#   retrieval & safety:      embed bge- rerank moderation guard
+#   agent products, not chat endpoints: computer-use deep-research aqa
+#       antigravity robotics lyria nano-banana
 _BAD_MODEL_PARTS = (
-    "veo", "sora", "imagen", "dall-e", "tts", "transcribe", "whisper",
-    "embed", "bge-", "moderation", "guard", "live",
+    "veo", "sora", "imagen", "dall-e", "image", "video", "3d", "nano-banana",
+    "tts", "audio", "transcribe", "whisper", "speech", "music", "live",
+    "embed", "bge-", "rerank", "moderation", "guard", "clip",
+    "computer-use", "deep-research", "aqa", "antigravity", "robotics", "lyria",
 )
-
-# Entries whose whole cached catalog is filtered (not just curated subsets):
-# above this count the list is a provider dump, not a choice the provider
-# made for the user, so obviously non-chat ids are dropped.
-_FILTER_CATALOG_ABOVE = 12
 
 
 def _model_chat_ok(model_id: str) -> bool:
@@ -625,8 +626,7 @@ def _route_choices() -> list[dict]:
         models = (cached.get(entry_id) or {}).get("models") or entry.get("models") or []
         if entry.get("list_models", {}).get("unsupported") and not models:
             continue
-        if len(models) > _FILTER_CATALOG_ABOVE:
-            models = [m for m in models if _model_chat_ok(m)]
+        models = [m for m in models if _model_chat_ok(m)]
         if models:
             shadowed = _shadowed_models(models)
             routes.extend({"kind": "model", "entry_id": entry_id, "model": m,
@@ -710,8 +710,8 @@ class ProviderPickerScreen(Screen[dict]):
             yield Vertical(id="picker-list-box")
             yield Static("type to filter · ↓/↑/enter: select · esc: default (superleanai)"
                          " · ★: picked in the last 7 days, listed first"
-                         " · only the newest generation of each model is listed;"
-                         " type an older id to pick it",
+                         " · chat models only, newest generation of each;"
+                         " type an id to reach an older version",
                          id="picker-hint")
 
     def on_mount(self) -> None:

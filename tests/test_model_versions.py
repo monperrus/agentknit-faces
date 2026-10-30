@@ -151,3 +151,73 @@ def test_matching_routes_hides_shadowed_ids(face) -> None:
     # ... unless nothing else matches: the last resort is to show them.
     assert face._matching_routes(routes, "2.5-flash-na", {}) == [2]
     assert face._matching_routes([_route("m", shadowed=True)], "m", {}) == [0]
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        # known-positive: chat models of every shape the catalogs use.
+        "models/gemini-3.8-flash",
+        "claude-opus-5.5",
+        "deepseek/deepseek-v4-pro",
+        "qwen/qwen3-vl-32b-instruct",  # vision input, still a chat endpoint
+        "perplexity/sonar-pro-search",
+        "Mistral-Large-3-675B-Instruct-2512-NVFP4",
+    ],
+)
+def test_chat_models_are_kept(face, model: str) -> None:
+    assert face._model_chat_ok(model)
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        # known-negative: one id per modality the /models catalogs mix in.
+        "models/veo-3.1-generate-preview",
+        "models/gemini-3-pro-image",
+        "models/gemini-2.5-flash-preview-tts",
+        "models/gemini-2.5-flash-native-audio-preview-12-2025",
+        "models/gemini-3.8-live",
+        "models/lyria-3.5",
+        "models/aqa",
+        "models/deep-research-pro-preview-12-2025",
+        "models/gemini-2.5-computer-use-preview-10-2025",
+        "models/gemini-embedding-2",
+        "nvidia/nvclip",
+        "text-embedding-3-small",
+        "bge-m3",
+        "meta/llama-guard-4-12b",
+        "openai/gpt-5.5:batch",
+    ],
+)
+def test_non_chat_models_are_dropped(face, model: str) -> None:
+    assert not face._model_chat_ok(model)
+
+
+def test_route_choices_offer_chat_models_only(tmp_path, monkeypatch) -> None:
+    """The picker offers no image/audio/embedding id; an all-non-chat entry
+    keeps an entry-level route instead of vanishing."""
+    import importlib
+
+    db = tmp_path / "endpoints.toml"
+    db.write_text(
+        '[endpoints.g]\nurl = "https://x/v1"\ntype = "chat-completions"\n'
+        'models = ["g-3.8-flash", "g-2.5-flash", "g-3-pro-image", "g-3.8-live"]\n'
+        '[endpoints.media]\nurl = "https://y/v1"\ntype = "chat-completions"\n'
+        'models = ["veo-3", "tts-1"]\n'
+    )
+    (tmp_path / "models.json").write_text("{}")
+    monkeypatch.setenv("INFERENCE_DB", str(db))
+
+    spec = importlib.util.spec_from_file_location(
+        "_face_routes", REPO_ROOT / "agent-kimi-k3-tui-superlean.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    routes = module._route_choices()
+    offered = {r["model"]: r["shadowed"] for r in routes if r.get("model")}
+    # image and live ids are absent entirely; the older version is only hidden.
+    assert offered == {"g-2.5-flash": True, "g-3.8-flash": False}
+    entries = [r["entry_id"] for r in routes if r["kind"] == "entry"]
+    assert entries == ["media"], "an entry with no chat model stays reachable"
