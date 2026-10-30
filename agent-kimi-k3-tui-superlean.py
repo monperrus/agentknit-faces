@@ -45,7 +45,11 @@ Usage:
                                                              # that reports no cache
                                                              # accounting
 
-The first screen asks which inference provider / model to use. Routes:
+The first screen asks which inference provider / model to use; the five
+routes picked most often in the last 7 days are listed first (marked with a
+star) and the rest keeps the catalog order. Pick history is machine-local
+state at ``$XDG_STATE_HOME/agentknit-faces/route-picks.json``; only list
+selections count, esc (the gateway default) is not a pick. Routes:
 
 * superleanai (default) -- this script's usual Kimi-K3-over-gateway
   schema, with the superleanai endpoint chosen by --local.
@@ -377,6 +381,92 @@ def _route_label(route: dict) -> str:
     return f"{route['entry_id']} · {route['model']}"
 
 
+# The picker promotes what is actually used: the five routes picked most
+# often in the last week come first, everything else keeps catalog order.
+PICK_TOP = 5
+PICK_WINDOW_DAYS = 7
+# Picks are kept a little longer than the window so that reading the history
+# never needs a rewrite; older ones are dropped on the next write.
+PICK_HISTORY_DAYS = 30
+
+
+def _route_key(route: dict) -> str:
+    """Stable identity of a route across runs (labels are for humans)."""
+    if route["kind"] == "superleanai":
+        return "superleanai"
+    if route["kind"] == "entry":
+        return f"entry:{route['entry_id']}"
+    return f"model:{route['entry_id']}:{route['model']}"
+
+
+def _picks_path() -> Path:
+    base = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
+    return Path(base) / "agentknit-faces" / "route-picks.json"
+
+
+def _load_picks(now: float | None = None) -> dict[str, list[float]]:
+    """Pick timestamps per route key, without history past the retention."""
+    try:
+        raw = json.loads(_picks_path().read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    cutoff = (now if now is not None else time.time()) - PICK_HISTORY_DAYS * 86400
+    picks: dict[str, list[float]] = {}
+    for key, stamps in raw.items():
+        if not isinstance(stamps, list):
+            continue
+        kept = [t for t in stamps if isinstance(t, (int, float)) and t >= cutoff]
+        if kept:
+            picks[key] = kept
+    return picks
+
+
+def _record_pick(route: dict, now: float | None = None) -> None:
+    """Append one pick of ``route`` to the history; never fatal."""
+    now = now if now is not None else time.time()
+    picks = _load_picks(now)
+    picks.setdefault(_route_key(route), []).append(now)
+    path = _picks_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(picks))
+        tmp.replace(path)
+    except OSError:
+        pass  # a read-only state dir must not break picking
+
+
+def _recent_pick_rank(
+    routes: list[dict], picks: dict[str, list[float]], now: float | None = None
+) -> dict[str, int]:
+    """Route key -> position (0-based) among the routes picked most this week.
+
+    Ties go to the route picked most recently, so equal counts still reflect
+    what was actually used last. Routes that no longer exist in ``routes``
+    are ignored, so a stale history cannot reorder a changed catalog.
+    """
+    now = now if now is not None else time.time()
+    since = now - PICK_WINDOW_DAYS * 86400
+    counts: dict[str, tuple[int, float]] = {}
+    for route in routes:
+        key = _route_key(route)
+        stamps = [t for t in picks.get(key, []) if t >= since]
+        if stamps:
+            counts[key] = (len(stamps), max(stamps))
+    ranked = sorted(counts, key=lambda key: counts[key], reverse=True)
+    return {key: position for position, key in enumerate(ranked[:PICK_TOP])}
+
+
+def _picker_order(
+    routes: list[dict], indices: list[int], recent: dict[str, int]
+) -> list[int]:
+    """The promoted routes first (in rank order), then the rest unchanged."""
+    return sorted(indices,
+                  key=lambda i: (recent.get(_route_key(routes[i]), len(recent)), i))
+
+
 def _route_choices() -> list[dict]:
     """First-screen routes: the superleanai gateway, then one per (entry, model)."""
     from agentknit import inference_db as idb
@@ -461,6 +551,9 @@ class ProviderPickerScreen(Screen[dict]):
         self._routes = routes
         self._visible = list(range(len(routes)))
         self._generation = 0
+        # Read once: the history only changes when this picker records a pick,
+        # and a single session makes at most one.
+        self._recent = _recent_pick_rank(routes, _load_picks())
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker"):
@@ -468,6 +561,7 @@ class ProviderPickerScreen(Screen[dict]):
             yield Input(placeholder="filter (e.g. kimi, glm, opus)…", id="picker-filter")
             yield Vertical(id="picker-list-box")
             yield Static("type to filter · ↓/↑/enter: select · esc: default (superleanai)"
+                         " · ★: picked in the last 7 days, listed first"
                          " · only the newest version of each model is listed;"
                          " type an older id to pick it",
                          id="picker-hint")
@@ -484,19 +578,36 @@ class ProviderPickerScreen(Screen[dict]):
         # a choice: the unfiltered list shows only the newest version of each
         # family.  Older ones stay reachable by typing their id (a query that
         # matches nothing else falls back to them).
-        freshness = [i for i in hits if not self._routes[i].get("shadowed")]
+        # A route picked in the last week is not shadowed for this user: the
+        # promoted five must stay reachable without typing their ids.
+        freshness = [i for i in hits
+                     if not self._routes[i].get("shadowed")
+                     or _route_key(self._routes[i]) in self._recent]
         self._visible = freshness or hits
+        if not terms:
+            # Opening the picker: most-picked-this-week first, then the rest
+            # in catalog order. A filter query keeps plain catalog order --
+            # a short filtered list is easier to scan unsorted.
+            self._visible = _picker_order(self._routes, self._visible, self._recent)
         self._generation += 1
         view = ListView(*[
             # Fresh ids each rebuild: the previous ListView unmounts
             # asynchronously, so reusing ids would clash in the DOM registry.
-            ListItem(Label(_route_label(self._routes[i])),
+            ListItem(Label(self._display_label(self._routes[i])),
                      id=f"route-{self._generation}-{i}")
             for i in self._visible[:200]  # cap: ListView with 1000+ items is slow
         ])
         box = self.query_one("#picker-list-box", Vertical)
         box.remove_children()
         box.mount(view)
+
+    def _display_label(self, route: dict) -> str:
+        """Hint the promotion with a star; filter matching still uses the label."""
+        return ("★ " if _route_key(route) in self._recent else "") + _route_label(route)
+
+    def _choose(self, route: dict) -> None:
+        _record_pick(route)
+        self.dismiss(route)
 
     @on(Input.Changed)
     def _filter(self, event: Input.Changed) -> None:
@@ -513,7 +624,7 @@ class ProviderPickerScreen(Screen[dict]):
                 # into the list (same as arrow down).
                 event.stop()
                 if len(self._visible) == 1:
-                    self.dismiss(self._routes[self._visible[0]])
+                    self._choose(self._routes[self._visible[0]])
                 elif self._visible:
                     self.query_one(ListView).focus()
                 return
@@ -521,7 +632,7 @@ class ProviderPickerScreen(Screen[dict]):
     @on(ListView.Selected)
     def _selected(self, event: ListView.Selected) -> None:
         index = int(str(event.item.id).rsplit("-", 1)[-1])
-        self.dismiss(self._routes[index])
+        self._choose(self._routes[index])
 
     def action_cancel(self) -> None:
         self.dismiss({"kind": "superleanai"})
