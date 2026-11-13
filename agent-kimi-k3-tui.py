@@ -16,7 +16,7 @@ import sys
 
 import agentknit
 
-MODEL = "k3"
+MODEL = "k3.1-pro"
 INFERENCE_DB = "kimi-coding"
 from agentknit import validate_schema
 from agentknit.exceptions import (
@@ -46,7 +46,7 @@ def main() -> int:
     os.environ["AGENTKNIT_RESUME_COMMAND"] = sys.argv[0]
 
     schema = agentknit.load_specification(MODEL, inference_db=INFERENCE_DB)
-    schema["display_name"] = "Kimi K3 (Kimi Coding Plan)"
+    schema["display_name"] = "Kimi K3.1 Pro (Kimi Coding Plan)"
     # Context window measured by llmprobe (reports/k3).
     schema["context_window"] = 1048576
     # Trigger compaction at 75 % of the window: the last observed prompt plus
