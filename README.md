@@ -43,6 +43,20 @@ env files):
 | GPT-5.6 Sol via Surplus | `login2` | `api.surplusintelligence.ai` |
 | kimi faces | `login2` | `kimi_api_key` |
 
+### Coding sessions as notebooks
+
+`agentknit-kimi-k3.1-python-repl` automatically maintains every session as a
+valid Jupyter notebook (nbformat 4.5), with no extra dependency. User prompts
+and assistant replies become Markdown cells. Each `python` tool call becomes a
+code cell, with stdout, stderr, execution count, and the exit code in cell
+metadata. Writes are atomic after each durable agent event, so the notebook is
+readable while the agent is working.
+
+The notebook is stored beside the session's JSONL transcript. On resume, the
+canonical notebook is `<session_id>.ipynb` in the model's session directory and
+is rebuilt from saved history before new cells are appended. Pass `--notebook`
+to print its path, or `--notebook <path>` to choose a different file.
+
 ### Minimum cacheable prompt size
 
 Providers only report cache accounting above a floor, and agentknit's strict

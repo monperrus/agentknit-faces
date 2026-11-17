@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -125,3 +126,168 @@ def test_python_tool_timeout_restarts_a_clean_interpreter(face):
 
     restarted, _ = face.t_python("print('discarded' in globals())")
     assert json.loads(restarted)["stdout"] == "False\n"
+
+
+
+def test_notebook_sink_maintains_valid_notebook(face, tmp_path):
+    path = tmp_path / "session.ipynb"
+    sink = face._NotebookSink(path)
+
+    sink.append({"type": "message", "msg": {"role": "user", "content": "Compute the answer"}})
+    sink.append({"type": "tool_start", "call_id": "call-1", "name": "t_python",
+                 "args": {"code": "answer = 6 * 7"}})
+    notebook = json.loads(path.read_text())
+    assert notebook["nbformat"] == 4
+    assert notebook["nbformat_minor"] == 5
+    assert notebook["cells"][0]["cell_type"] == "markdown"
+    assert "Compute the answer" in "".join(notebook["cells"][0]["source"])
+    assert notebook["cells"][1]["cell_type"] == "code"
+    assert notebook["cells"][1]["execution_count"] is None
+    assert notebook["cells"][1]["outputs"] == []
+
+    sink.append({"type": "tool_end", "call_id": "call-1", "name": "t_python",
+                 "result": json.dumps({"stdout": "", "stderr": "", "exit_code": 0})})
+    sink.append({"type": "message", "msg": {"role": "assistant", "content": "The answer is 42."}})
+    sink.append({"type": "turn_end"})
+    notebook = json.loads(path.read_text())
+    code = notebook["cells"][1]
+    assert code["execution_count"] == 1
+    assert code["outputs"][0]["output_type"] == "stream"
+    assert code["outputs"][0]["name"] == "stdout"
+    assert code["outputs"][0]["text"] == []
+    assert notebook["cells"][2]["cell_type"] == "markdown"
+    assert "The answer is 42." in "".join(notebook["cells"][2]["source"])
+    assert notebook["cells"][3]["cell_type"] == "code"
+    assert notebook["cells"][3]["source"] == []
+
+
+def test_notebook_sink_captures_results_errors_and_multiple_calls(face, tmp_path):
+    path = tmp_path / "session.ipynb"
+    sink = face._NotebookSink(path)
+    sink.append({"type": "message", "msg": {"role": "user", "content": "Run two cells"}})
+    for call_id, code in [("one", "print('hello')"), ("two", "1 / 0")]:
+        sink.append({"type": "tool_start", "call_id": call_id, "name": "t_python",
+                     "args": {"code": code}})
+        result = {"stdout": "hello\n" if call_id == "one" else "",
+                  "stderr": "" if call_id == "one" else "ZeroDivisionError\n",
+                  "exit_code": 0 if call_id == "one" else 1}
+        sink.append({"type": "tool_end", "call_id": call_id, "name": "t_python",
+                     "result": json.dumps(result)})
+    notebook = json.loads(path.read_text())
+    cells = [cell for cell in notebook["cells"] if cell["cell_type"] == "code" and cell["source"]]
+    assert [cell["execution_count"] for cell in cells] == [1, 2]
+    assert cells[0]["outputs"][0]["text"] == ["hello\n"]
+    assert cells[1]["outputs"][1] == {"output_type": "stream", "name": "stderr",
+                                       "text": ["ZeroDivisionError\n"]}
+    assert cells[1]["metadata"]["agentknit"]["exit_code"] == 1
+    check = subprocess.run(["/usr/bin/python3", "-c",
+        "import nbformat, sys; nbformat.validate(nbformat.read(sys.argv[1], as_version=4))",
+        str(path)], capture_output=True, text=True)
+    assert check.returncode == 0, check.stderr
+
+
+def test_notebook_sink_handles_assistant_commentary_and_plain_errors(face, tmp_path):
+    path = tmp_path / "session.ipynb"
+    sink = face._NotebookSink(path)
+    sink.append({"type": "message", "msg": {"role": "user", "content": "Test"}})
+    sink.append({"type": "message", "msg": {"role": "assistant", "content": "Checking now."}})
+    sink.append({"type": "tool_start", "call_id": "x", "name": "t_python",
+                 "args": {"code": "raise ValueError('bad')"}})
+    sink.append({"type": "tool_end", "call_id": "x", "result": "ERROR: tool failed"})
+    notebook = json.loads(path.read_text())
+    markdown = [cell for cell in notebook["cells"] if cell["cell_type"] == "markdown"]
+    code = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"]
+    assert "Checking now." in "".join(markdown[-1]["source"])
+    assert code[-1]["outputs"][0]["name"] == "stdout"
+    assert code[-1]["outputs"][1]["name"] == "stderr"
+    assert code[-1]["metadata"]["agentknit"]["exit_code"] is None
+
+
+def test_notebook_sink_rebuilds_history_when_resuming(face, tmp_path):
+    path = tmp_path / "session.ipynb"
+    sink = face._NotebookSink(path)
+    sink.append({"type": "message", "msg": {"role": "user", "content": "First"}})
+    sink.append({"type": "tool_start", "call_id": "old", "name": "t_python",
+                 "args": {"code": "x = 1"}})
+    sink.append({"type": "tool_end", "call_id": "old", "name": "t_python",
+                 "result": json.dumps({"stdout": "1\n", "stderr": "", "exit_code": 0})})
+    resumed = face._NotebookSink(path, replay=[
+        {"type": "message", "msg": {"role": "system", "content": "instructions"}},
+        {"type": "message", "msg": {"role": "user", "content": "First"}},
+        {"type": "message", "msg": {"role": "assistant", "content": "",
+             "tool_calls": [{"id": "old", "type": "function", "function": {
+                 "name": "python", "arguments": json.dumps({"code": "x = 1"})}}]}},
+        {"type": "message", "msg": {"role": "tool", "tool_call_id": "old",
+             "name": "t_python", "content": json.dumps(
+                 {"stdout": "1\n", "stderr": "", "exit_code": 0})}},
+    ])
+    notebook = json.loads(path.read_text())
+    assert notebook["metadata"]["agentknit"]["session_id"] is None
+    assert len([c for c in notebook["cells"] if c["cell_type"] == "code" and c["source"]]) == 1
+    resumed.append({"type": "tool_start", "call_id": "new", "name": "t_python",
+                    "args": {"code": "x + 1"}})
+    assert json.loads(path.read_text())["cells"][-1]["execution_count"] is None
+
+
+def test_notebook_arguments_and_main_wiring(face, monkeypatch, tmp_path):
+    assert face._notebook_arg([]) is None
+    assert face._notebook_arg(["--notebook"]) is True
+    assert face._notebook_arg(["--notebook", "x.ipynb"]) == "x.ipynb"
+    captured = capture_task(face, monkeypatch)
+    monkeypatch.setattr(sys, "argv", [FACE.name, "--notebook", "run", "task"])
+    face.main()
+    assert captured["args"][1] == "run task"
+    assert isinstance(captured["kwargs"]["durable_sink"], face._NotebookSink)
+    assert captured["kwargs"]["durable_sink"].path is None
+    assert captured["kwargs"]["durable_sink"].requested is True
+
+
+def test_real_agent_session_updates_notebook_after_each_step(face, tmp_path, monkeypatch):
+    transcript = tmp_path / "session.jsonl"
+    path = tmp_path / "session.ipynb"
+    sink = face._NotebookSink(path)
+    schema = {
+        "model": face.MODEL, "endpoint": "http://unused.invalid", "tool_specs": [],
+        "tools": [], "inferred_tool_schema": [], "tool_dispatch": {},
+        "behaviour": {"call_delivery_mode": "structured_tool_calls"},
+    }
+    session = face.agentknit.init_session(schema, durable=False, durable_sink=sink,
+                                          time_awareness_enabled=False)
+    # Use the public sink with the actual session stream, not hand-built notebook cells.
+    sink.bind(str(transcript), session["session_id"])
+    sink.append({"type": "message", "msg": {"role": "user", "content": "Hello"}})
+    sink.append({"type": "tool_start", "call_id": "live", "name": "t_python",
+                 "args": {"code": "print('live')"}})
+    before = json.loads(path.read_text())
+    assert before["cells"][-1]["execution_count"] is None
+    sink.append({"type": "tool_end", "call_id": "live", "name": "t_python",
+                 "result": json.dumps({"stdout": "live\n", "stderr": "", "exit_code": 0})})
+    sink.append({"type": "turn_end"})
+    after = json.loads(path.read_text())
+    assert after["cells"][-2]["execution_count"] == 1
+    assert not (tmp_path / "session.ipynb.tmp").exists()
+
+
+def test_default_notebook_path_uses_system_session_identity(face, tmp_path, monkeypatch):
+    log_root = tmp_path / "probe"
+    monkeypatch.setattr(face.agentknit._core, "LOG_BASE", log_root)
+    sink = face._NotebookSink()
+    sink.append({"type": "message", "msg": {"role": "system",
+        "content": "Session: abc123 (transcript: unused)"}})
+    sink.append({"type": "message", "msg": {"role": "user", "content": "Hello"}})
+    expected = log_root / face.MODEL / __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+    notebooks = list(expected.glob("*_abc123.ipynb"))
+    assert len(notebooks) == 1
+    notebook = json.loads(notebooks[0].read_text())
+    assert notebook["metadata"]["agentknit"]["session_id"] == "abc123"
+    assert "Hello" in "".join(notebook["cells"][-1]["source"])
+
+
+def test_awareness_footer_is_not_part_of_notebook_prompt(face, tmp_path):
+    path = tmp_path / "session.ipynb"
+    sink = face._NotebookSink(path)
+    sink.append({"type": "message", "msg": {"role": "user",
+        "content": "Question\n\n<session_time>elapsed</session_time>"}})
+    text = "".join(json.loads(path.read_text())["cells"][-1]["source"])
+    assert "Question" in text
+    assert "session_time" not in text
