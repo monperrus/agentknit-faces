@@ -309,7 +309,12 @@ class _PythonREPL:
         import contextlib
         import io
 
-        console = code.InteractiveConsole()
+        class Console(code.InteractiveConsole):
+            def showsyntaxerror(self, filename=None, **kwargs):
+                super().showsyntaxerror(filename, **kwargs)
+                raise _PythonExecutionError from None
+
+        console = Console()
         console.showtraceback = self._show_traceback
         while True:
             source = self._requests.get()
@@ -323,9 +328,9 @@ class _PythonREPL:
                     incomplete = console.runsource(source, symbol="single")
                     if incomplete:
                         print("SyntaxError: incomplete Python input", file=stderr)
-                        exit_code = 1
+                        exit_code = -1
                 except _PythonExecutionError:
-                    exit_code = 1
+                    exit_code = -1
                 except SystemExit as exc:
                     exit_code = exc.code if isinstance(exc.code, int) else 1
                     if exc.code not in (0, None) and not isinstance(exc.code, int):
@@ -334,7 +339,7 @@ class _PythonREPL:
                     import traceback
 
                     traceback.print_exc()
-                    exit_code = 1
+                    exit_code = -1
             self._responses.put({
                 "stdout": stdout.getvalue(),
                 "stderr": stderr.getvalue(),
