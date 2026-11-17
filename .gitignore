@@ -11,5 +11,6 @@ agent_deepseek_v4_flash.py
 agent_gpt_5_6_sol_surplus.py
 agent_kimi_k3.py
 agent_kimi_k3_tui.py
+agent_kimi_k3_1_python.py
 .pytest_cache/
 .hypothesis/

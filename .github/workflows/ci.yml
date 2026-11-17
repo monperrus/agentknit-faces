@@ -40,4 +40,4 @@ jobs:
       - name: Smoke-test entry points from the wheel
         run: |
           uvx --from dist/agentknit_faces-*.whl python -c \
-            "import agent_glm_5_3, agent_deepseek_v4_flash, agent_gpt_5_6_sol_surplus, agent_kimi_k3; print('faces import OK')"
+            "import agent_glm_5_3, agent_deepseek_v4_flash, agent_gpt_5_6_sol_surplus, agent_kimi_k3, agent_kimi_k3_1_python; print('faces import OK')"

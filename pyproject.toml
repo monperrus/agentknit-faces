@@ -45,6 +45,7 @@ Issues = "https://github.com/monperrus/agentknit-faces/issues"
 "agentknit-gpt-5.6-sol-surplus" = "agent_gpt_5_6_sol_surplus:main"
 "agentknit-kimi-k3" = "agent_kimi_k3:main"
 "agentknit-kimi-k3-tui" = "agent_kimi_k3_tui:main"
+"agentknit-kimi-k3.1-python" = "agent_kimi_k3_1_python:main"
 
 [tool.hatch.build.targets.wheel]
 # The face files use dashes (agent-glm-5.3.py); Python modules need
@@ -58,6 +59,7 @@ only-include = [
     "agent_gpt_5_6_sol_surplus.py",
     "agent_kimi_k3.py",
     "agent_kimi_k3_tui.py",
+    "agent_kimi_k3_1_python.py",
 ]
 
 [tool.pytest.ini_options]
