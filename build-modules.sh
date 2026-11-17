@@ -12,7 +12,8 @@ for pair in \
     "agent-gpt-5.6-sol-surplus.py agent_gpt_5_6_sol_surplus.py" \
     "agent-kimi-k3.py agent_kimi_k3.py" \
     "agent-kimi-k3-tui.py agent_kimi_k3_tui.py" \
-    "agent-kimi-k3.1-python.py agent_kimi_k3_1_python.py"
+    "agent-kimi-k3.1-python.py agent_kimi_k3_1_python.py" \
+    "agent-kimi-k3.1-python-repl.py agent_kimi_k3_1_python_repl.py"
 do
     set -- $pair
     cp "$1" "$2"

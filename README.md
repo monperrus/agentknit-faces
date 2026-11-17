@@ -31,6 +31,7 @@ uvx --from "agentknit-faces[tui]" agentknit-glm-5.3-tui
 | `agentknit-kimi-k3` | Kimi K3 via the official Kimi Coding Plan API |
 | `agentknit-kimi-k3-tui` | Kimi K3 via the official Kimi Coding Plan API, Textual TUI |
 | `agentknit-kimi-k3.1-python` | Kimi K3.1 Pro via the Kimi Coding Plan API; only `read_file`, `write_file`, `str_replace`, and `python` tools |
+| `agentknit-kimi-k3.1-python-repl` | Kimi K3.1 Pro via the Kimi Coding Plan API; one persistent `python` REPL tool for everything, including reading, writing, and editing files |
 
 API keys are resolved from the system keyring (never from source-controlled
 env files):
