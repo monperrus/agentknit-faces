@@ -56,6 +56,14 @@ source = "env"
 var = "FACES_TEST_KEY"
 [endpoints.superleanai-kimi.model_params.k3]
 temperature = 1
+
+[endpoints.surplus-min10]
+name = "Surplus Intelligence"
+url = "https://api.surplusintelligence.ai/min10/v1"
+type = ["chat-completions", "responses"]
+[[endpoints.surplus-min10.key]]
+source = "env"
+var = "FACES_TEST_KEY"
 """
 
 

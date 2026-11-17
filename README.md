@@ -27,6 +27,7 @@ uvx --from "agentknit-faces[tui]" agentknit-glm-5.3-tui
 | `agentknit-glm-5.3-tui` | glm-5.3 via api.z.ai, Textual TUI |
 | `agentknit-glm-5.3-flash-tui` | glm-5.3-flash via api.z.ai, Textual TUI |
 | `agentknit-deepseek-v4-flash` | DeepSeek V4 Flash via the official DeepSeek API (`api.deepseek.com`) |
+| `agentknit-gpt-5.6-sol-surplus` | GPT-5.6 Sol via Surplus Intelligence (`api.surplusintelligence.ai/min10/v1`) |
 | `agentknit-kimi-k3` | Kimi K3 via the official Kimi Coding Plan API |
 | `agentknit-kimi-k3-tui` | Kimi K3 via the official Kimi Coding Plan API, Textual TUI |
 
@@ -37,6 +38,7 @@ env files):
 |---|---|---|
 | glm faces | `z.ai` | `api_key` |
 | deepseek faces | `login2` | `deepseek_api_key` |
+| GPT-5.6 Sol via Surplus | `login2` | `api.surplusintelligence.ai` |
 | kimi faces | `login2` | `kimi_api_key` |
 
 ### Minimum cacheable prompt size

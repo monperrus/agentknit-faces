@@ -9,6 +9,7 @@ for pair in \
     "agent-glm-5.3-tui.py agent_glm_5_3_tui.py" \
     "agent-glm-5.3-flash-tui.py agent_glm_5_3_flash_tui.py" \
     "agent-deepseek-v4-flash.py agent_deepseek_v4_flash.py" \
+    "agent-gpt-5.6-sol-surplus.py agent_gpt_5_6_sol_surplus.py" \
     "agent-kimi-k3.py agent_kimi_k3.py" \
     "agent-kimi-k3-tui.py agent_kimi_k3_tui.py"
 do
