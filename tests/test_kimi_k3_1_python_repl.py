@@ -107,7 +107,7 @@ def test_python_tool_captures_errors_without_losing_state(face):
 
     error, metadata = face.t_python("1 / 0")
     result = json.loads(error)
-    assert result["exit_code"] == -1
+    assert result["exit_code"] == 1
     assert "ZeroDivisionError" in result["stderr"]
     assert metadata["ok"] is False
 
@@ -119,7 +119,7 @@ def test_python_tool_reports_syntax_errors_as_exceptions(face):
     text, metadata = face.t_python("from pathlib import Path\nprint('unreachable')")
 
     result = json.loads(text)
-    assert result["exit_code"] == -1
+    assert result["exit_code"] == 1
     assert "SyntaxError" in result["stderr"]
     assert metadata["ok"] is False
 
