@@ -21,7 +21,7 @@ jobs:
       - name: Install the faces (with the TUI extra) and test tooling
         run: |
           pip install --upgrade pip
-          pip install ".[tui]" pytest "ruff>=0.15.12" build uv
+          pip install ".[tui]" pytest nbformat "ruff>=0.15.12" build uv
 
       - name: Lint with ruff
         run: |

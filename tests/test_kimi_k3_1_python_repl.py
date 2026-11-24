@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -189,10 +188,8 @@ def test_notebook_sink_captures_results_errors_and_multiple_calls(face, tmp_path
     assert cells[1]["outputs"][1] == {"output_type": "stream", "name": "stderr",
                                        "text": ["ZeroDivisionError\n"]}
     assert cells[1]["metadata"]["agentknit"]["exit_code"] == 1
-    check = subprocess.run(["/usr/bin/python3", "-c",
-        "import nbformat, sys; nbformat.validate(nbformat.read(sys.argv[1], as_version=4))",
-        str(path)], capture_output=True, text=True)
-    assert check.returncode == 0, check.stderr
+    nbformat = pytest.importorskip("nbformat")
+    nbformat.validate(nbformat.read(str(path), as_version=4))
 
 
 def test_notebook_sink_handles_assistant_commentary_and_plain_errors(face, tmp_path):
