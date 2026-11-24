@@ -33,6 +33,7 @@ import queue
 import re
 import sys
 import threading
+import uuid
 from typing import Any
 
 import agentknit
@@ -64,13 +65,20 @@ def _splitlines(text: str) -> list[str]:
     return text.splitlines(keepends=True)
 
 
+def _cell_id() -> str:
+    """nbformat 4.5 requires a unique id on every cell."""
+    return uuid.uuid4().hex
+
+
 def _markdown(source: str) -> dict[str, Any]:
-    return {"cell_type": "markdown", "metadata": {}, "source": _splitlines(source)}
+    return {"cell_type": "markdown", "id": _cell_id(), "metadata": {},
+            "source": _splitlines(source)}
 
 
 def _code(source: str) -> dict[str, Any]:
     return {
         "cell_type": "code",
+        "id": _cell_id(),
         "execution_count": None,
         "metadata": {},
         "outputs": [],

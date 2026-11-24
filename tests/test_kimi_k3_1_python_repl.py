@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -189,7 +190,9 @@ def test_notebook_sink_captures_results_errors_and_multiple_calls(face, tmp_path
                                        "text": ["ZeroDivisionError\n"]}
     assert cells[1]["metadata"]["agentknit"]["exit_code"] == 1
     nbformat = pytest.importorskip("nbformat")
-    nbformat.validate(nbformat.read(str(path), as_version=4))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # e.g. MissingIDFieldWarning, a future hard error
+        nbformat.validate(nbformat.read(str(path), as_version=4))
 
 
 def test_notebook_sink_handles_assistant_commentary_and_plain_errors(face, tmp_path):
