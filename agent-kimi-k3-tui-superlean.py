@@ -53,7 +53,8 @@ selections count, esc (the gateway default) is not a pick. Routes:
 
 * superleanai (default) -- this script's usual Kimi-K3-over-gateway
   schema, with the superleanai endpoint chosen by --local.
-* anything else -- an inference-db entry; the models offered come from
+* anything else -- an inference-db entry (the filter also matches the
+  entry's name and url, e.g. ``inference.luj.fr`` finds entry ``luj``); the models offered come from
   inference-db's cached model list (~/.config/inference-db/models.json,
   refresh with `inference-db refresh-models`). Non-superleanai routes are
   plain agentknit loads, which only speak chat-completions -- entries typed
@@ -282,13 +283,13 @@ def _build_entry_schema(entry_id: str, model: str) -> dict:
 # /models; offering them in the picker is a guaranteed 400/404. Grouped so
 # that a missing modality is easy to spot:
 #   image/video generators: veo sora imagen dall-e image video 3d
-#   audio / realtime:        tts audio transcribe whisper speech music live
+#   audio / realtime:        tts audio transcribe parakeet whisper speech music live
 #   retrieval & safety:      embed bge- rerank moderation guard
 #   agent products, not chat endpoints: computer-use deep-research aqa
 #       antigravity robotics lyria nano-banana
 _BAD_MODEL_PARTS = (
     "veo", "sora", "imagen", "dall-e", "image", "video", "3d", "nano-banana",
-    "tts", "audio", "transcribe", "whisper", "speech", "music", "live",
+    "tts", "audio", "transcribe", "parakeet", "whisper", "speech", "music", "live",
     "embed", "bge-", "rerank", "moderation", "guard", "clip",
     "computer-use", "deep-research", "aqa", "antigravity", "robotics", "lyria",
 )
@@ -506,6 +507,12 @@ def _route_label(route: dict) -> str:
     return f"{route['entry_id']} · {route['model']}"
 
 
+def _route_haystack(route: dict) -> str:
+    """What the picker filter searches: the label plus the provider's name and
+    url, so that ``inference.luj.fr`` finds entry ``luj``."""
+    return f"{_route_label(route)} {route.get('provider', '')}".lower()
+
+
 # The picker promotes what is actually used: the five routes picked most
 # often in the last week come first, everything else keeps catalog order.
 PICK_TOP = 5
@@ -605,7 +612,7 @@ def _route_choices() -> list[dict]:
     if cache_path.is_file():
         cached = json.loads(cache_path.read_text())
 
-    routes: list[dict] = [{"kind": "superleanai"}]
+    routes: list[dict] = [{"kind": "superleanai", "provider": PROD_GATEWAY}]
     for entry_id in sorted(entries):
         if entry_id == INFERENCE_DB:
             continue
@@ -614,6 +621,7 @@ def _route_choices() -> list[dict]:
             continue  # sub-tables (headers, list_models, ...) share the prefix
         if entry.get("dormant"):
             continue  # exhausted/dead account, kept in the db for reference
+        provider = f"{entry.get('name', '')} {entry.get('url', '')}"
         types = entry.get("type") or []
         if isinstance(types, str):
             types = [types]
@@ -630,10 +638,11 @@ def _route_choices() -> list[dict]:
         if models:
             shadowed = _shadowed_models(models)
             routes.extend({"kind": "model", "entry_id": entry_id, "model": m,
-                           "shadowed": m in shadowed}
+                           "shadowed": m in shadowed, "provider": provider}
                           for m in sorted(models))
         else:
-            routes.append({"kind": "entry", "entry_id": entry_id})
+            routes.append({"kind": "entry", "entry_id": entry_id,
+                           "provider": provider})
     return routes
 
 
@@ -650,7 +659,7 @@ def _matching_routes(routes: list[dict], query: str, recent: dict) -> list[int]:
     text = query.strip().lower()
     terms = text.split()
     hits = [i for i, r in enumerate(routes)
-            if all(t in _route_label(r).lower() for t in terms)]
+            if all(t in _route_haystack(r) for t in terms)]
     if text:
         exact = [i for i in hits if str(routes[i].get("model", "")).lower() == text]
         if exact:

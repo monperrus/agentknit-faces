@@ -188,6 +188,7 @@ def test_chat_models_are_kept(face, model: str) -> None:
         "bge-m3",
         "meta/llama-guard-4-12b",
         "openai/gpt-5.5:batch",
+        "parakeet-tdt-0.6b-v3",  # speech-to-text, served by inference.luj.fr
     ],
 )
 def test_non_chat_models_are_dropped(face, model: str) -> None:
@@ -221,3 +222,44 @@ def test_route_choices_offer_chat_models_only(tmp_path, monkeypatch) -> None:
     assert offered == {"g-2.5-flash": True, "g-3.8-flash": False}
     entries = [r["entry_id"] for r in routes if r["kind"] == "entry"]
     assert entries == ["media"], "an entry with no chat model stays reachable"
+
+
+def test_filter_matches_entry_name_and_host(tmp_path, monkeypatch) -> None:
+    """Typing the provider's host or name finds its routes, not only its id:
+    ``inference.luj.fr`` finds entry ``luj``."""
+    import importlib
+
+    db = tmp_path / "endpoints.toml"
+    db.write_text(
+        '[endpoints.luj]\nname = "inference.luj.fr (LiteLLM proxy)"\n'
+        'url = "https://inference.luj.fr/v1"\ntype = "chat-completions"\n'
+        'models = ["deepseek-v4-flash"]\n'
+        '[endpoints.other]\nname = "Other"\nurl = "https://api.other.com/v1"\n'
+        'type = "chat-completions"\nmodels = ["deepseek-v4-flash"]\n'
+    )
+    (tmp_path / "models.json").write_text("{}")
+    monkeypatch.setenv("INFERENCE_DB", str(db))
+
+    spec = importlib.util.spec_from_file_location(
+        "_face_host", REPO_ROOT / "agent-kimi-k3-tui-superlean.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    routes = module._route_choices()
+
+    def shown(query: str) -> list[str]:
+        return [module._route_label(routes[i])
+                for i in module._matching_routes(routes, query, {})]
+
+    # known-positive: host, name word, and host + model terms together.
+    assert shown("inference.luj.fr") == ["luj · deepseek-v4-flash"]
+    assert shown("litellm") == ["luj · deepseek-v4-flash"]
+    assert shown("luj.fr deepseek") == ["luj · deepseek-v4-flash"]
+    # known-negative: a host that is nowhere matches nothing.
+    assert shown("nowhere.example") == []
+    # boundary: the model id alone still lists every provider serving it.
+    assert shown("deepseek-v4-flash") == [
+        "luj · deepseek-v4-flash", "other · deepseek-v4-flash"]
+    # the gateway route is findable by its host too.
+    assert shown("superleanai.com") == [module._route_label({"kind": "superleanai"})]
